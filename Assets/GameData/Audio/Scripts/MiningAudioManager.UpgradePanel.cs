@@ -115,12 +115,18 @@ namespace MiningSimulator.Ores
         {
             if (audioData == null) return;
             rarity = Mathf.Clamp(rarity, 0, 4);
-            PlaySfxWithPitch(audioData.CardPickSfx, 0.75f + rarity * 0.06f, 1f + rarity * 0.045f);
+            PlaySfxWithPitch(audioData.CardPickSfx, audioData.CardPickVolume * (1f + rarity * .08f), 1f + rarity * 0.045f);
+        }
+
+        internal void PlayDialogueBlip(AudioClip clip)
+        {
+            if (audioData == null) return;
+            PlaySfxWithPitch(clip, .25f, 1f + Random.Range(-.055f, .055f));
         }
 
         private void PlaySfxWithPitch(AudioClip clip, float volumeMultiplier, float pitch)
         {
-            if (sfxSource == null || sfxMuted || !EnsureClipLoaded(clip)) return;
+            if (!isActiveAndEnabled || sfxSource == null || sfxMuted || !EnsureClipLoaded(clip)) return;
             sfxSource.pitch = pitch;
             sfxSource.PlayOneShot(clip, audioData.SfxVolume * Mathf.Max(0f, volumeMultiplier));
         }

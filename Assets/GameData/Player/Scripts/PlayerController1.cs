@@ -67,6 +67,8 @@ namespace GameData.Player.Script
         private MiningSimulator.Ores.AlunePlayerEffect _alune;
         private SurvivorCombatData CoreData => _playerStats != null ? _playerStats.CoreData : null;
 
+        private CapsuleCollider _bodyCapsule;
+        private Vector3 _groundNormal = Vector3.up;
         private bool _grounded;
         public bool IsGrounded => _grounded;
         public event Action Jumped;
@@ -81,6 +83,8 @@ namespace GameData.Player.Script
         private int _takeOffGroundChecks;
 
         private bool _hasAnimator;
+        private static readonly int HiEmoteState = Animator.StringToHash("Base Layer.Emote Hi");
+        private static readonly int LocomotionState = Animator.StringToHash("Base Layer.Locomotion");
 
         private int _xVelHash;
 
@@ -107,6 +111,7 @@ namespace GameData.Player.Script
         {
             _hasAnimator = TryGetComponent<Animator>(out _animator);
             _playerRigidbody = GetComponent<Rigidbody>();
+            _bodyCapsule = GetComponent<CapsuleCollider>();
             _inputManager = GetComponent<InputManager>();
             _playerStats = GetComponent<MiningSimulator.Ores.PlayerStats>();
             _runMana = GetComponent<AnimationRunMana>();
@@ -132,7 +137,32 @@ namespace GameData.Player.Script
             if (isActiveAndEnabled && Time.timeScale > 0f) _jumpRequested = true;
         }
 
-        private void Update() { HandleJump(); }
+        private void Update()
+        {
+            HandleHiEmote();
+            HandleJump();
+        }
+
+        private void HandleHiEmote()
+        {
+            if (!_hasAnimator || !_animator.isActiveAndEnabled || !_topDown || !_topDown.enabled ||
+                Time.timeScale <= 0f || (gameplayUi && gameplayUi.BlocksGameplay) || (mainMenu && mainMenu.IsOpen))
+                return;
+
+            bool moving = _inputManager.Move.sqrMagnitude > .01f;
+            bool transitioning = _animator.IsInTransition(0);
+            bool emoting = transitioning
+                ? _animator.GetNextAnimatorStateInfo(0).fullPathHash == HiEmoteState
+                : _animator.GetCurrentAnimatorStateInfo(0).fullPathHash == HiEmoteState;
+
+            if (emoting && (moving || !_grounded || (_alune && _alune.IsStunned)))
+                _animator.CrossFadeInFixedTime(LocomotionState, .08f, 0);
+            else if (!emoting && !moving && _grounded && !_inputManager.Jump &&
+                     (!_alune || !_alune.IsStunned) && _inputManager.HiEmotePressed &&
+                     _animator.GetCurrentAnimatorStateInfo(0).fullPathHash == LocomotionState &&
+                     _animator.HasState(0, HiEmoteState))
+                _animator.CrossFadeInFixedTime(HiEmoteState, .08f, 0);
+        }
 
         private void OnDisable() { _jumpRequested = false; _jumpHeldLastStep = false; }
         private Vector3 knockbackVelocity;
@@ -210,13 +240,13 @@ namespace GameData.Player.Script
 
             if (_grounded)
             {
-                // Input and blend-tree velocities are local to the player. Compare
-                // them with local Rigidbody velocity before converting the correction.
-                var localVelocity = transform.InverseTransformDirection(_playerRigidbody.linearVelocity);
-                var xVelDifference = desiredVelocity.x - localVelocity.x;
-                var yVelDifference = desiredVelocity.y - localVelocity.z;
-
-                _playerRigidbody.AddForce(transform.TransformDirection(new Vector3(xVelDifference, 0f, yVelDifference)), ForceMode.VelocityChange);
+                Vector3 velocity = _playerRigidbody.linearVelocity;
+                Vector3 desired = transform.TransformDirection(new Vector3(desiredVelocity.x, 0f, desiredVelocity.y));
+                // Follow the slope at the same horizontal speed in either direction.
+                desired.y = _groundNormal.y < .9999f
+                    ? -(desired.x * _groundNormal.x + desired.z * _groundNormal.z) / _groundNormal.y
+                    : velocity.y;
+                _playerRigidbody.AddForce(desired - velocity, ForceMode.VelocityChange);
 
             } 
             else
@@ -300,25 +330,42 @@ namespace GameData.Player.Script
             bool wasGrounded=_grounded;
             bool canNotify=groundSampleInitialized;
             groundSampleInitialized=true;
-            float fallSpeed=Mathf.Max(0f,-_playerRigidbody.linearVelocity.y);
-            RaycastHit hitInfo;
-            _animator.SetFloat(_zVelHash, _playerRigidbody.linearVelocity.y);
+            Vector3 velocity = _playerRigidbody.linearVelocity;
+            _animator.SetFloat(_zVelHash, velocity.y);
+
             bool takingOff = _takeOffGroundChecks > 0;
             if (takingOff) _takeOffGroundChecks--;
-            if (!takingOff && _playerRigidbody.linearVelocity.y <= 0.1f && Physics.Raycast(_playerRigidbody.worldCenterOfMass,Vector3.down,out hitInfo, (Dis2Ground + 0.1f) * (_playerStats ? _playerStats.BodySizeMultiplier : 1f), GroundCheck, QueryTriggerInteraction.Ignore))
-            {
-                _grounded = true;
-                if(canNotify&&!wasGrounded&&fallSpeed>.6f)Landed?.Invoke(fallSpeed);
-                SetAnimationGrounding();
-                return;
 
-            }
+            float size = _playerStats ? _playerStats.BodySizeMultiplier : 1f;
+            Bounds capsuleBounds = _bodyCapsule ? _bodyCapsule.bounds : default;
+            bool hasCapsule = capsuleBounds.extents.y > 0f;
+            Vector3 origin = hasCapsule ? capsuleBounds.center : _playerRigidbody.worldCenterOfMass;
+            float halfHeight = hasCapsule ? capsuleBounds.extents.y : Dis2Ground * size;
+            float radius = hasCapsule ? Mathf.Min(capsuleBounds.extents.x, capsuleBounds.extents.z) : 0f;
+            float tolerance = (wasGrounded ? .08f : .035f) * size;
+            const float minimumGroundNormalY = .7071f;
+            float probeDistance = halfHeight + radius * (1f / minimumGroundNormalY - 1f) + tolerance;
 
             _grounded = false;
-            _animator.SetFloat(_zVelHash, _playerRigidbody.linearVelocity.y);
+            _groundNormal = Vector3.up;
+            if (!takingOff &&
+                Physics.Raycast(origin, Vector3.down, out RaycastHit hit, probeDistance, GroundCheck, QueryTriggerInteraction.Ignore) &&
+                hit.normal.y >= minimumGroundNormalY)
+            {
+                // The center ray reaches farther on slopes because the capsule contacts off-center.
+                float contactDistance = halfHeight + radius * (1f / hit.normal.y - 1f);
+                float normalSpeed = Vector3.Dot(velocity, hit.normal);
+                if (hit.distance <= contactDistance + tolerance && normalSpeed <= .1f)
+                {
+                    _grounded = true;
+                    _groundNormal = hit.normal;
+                    if (canNotify && !wasGrounded && velocity.y < -.6f)
+                        Landed?.Invoke(-velocity.y);
+                }
+            }
             SetAnimationGrounding();
-            return;
         }
+
 
         private void SetAnimationGrounding()
         {

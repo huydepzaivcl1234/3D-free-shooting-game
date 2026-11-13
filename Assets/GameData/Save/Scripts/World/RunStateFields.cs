@@ -18,7 +18,7 @@ namespace MiningSimulator.Ores
         static readonly Dictionary<Type,string[]> Rules=new(){
             {typeof(CharacterHealth),new[]{"regenTimer","initializedMaxHealth","damageEnabled","burn","burnSource"}},
             {typeof(SurvivorEnemyStatus),new[]{"weakRemaining","damageReduction","airTime","airDuration","airStartY","landingDamage","airHeight","source","airCooldownRemaining","airCooldownOnLanding","frostRemaining","frostSlow","frostVulnerability","<FrostTint>k__BackingField"}},
-            {typeof(SurvivorAbilities),new[]{"shieldLevel","incomingHits","orbHits","shield","shieldDelay","lifeTimer","auraTimer","invulnTimer","invulnerable","recoveryCooldown","recoveryRemaining","recoveryPerSecond","defenseDecay","~lastIncoming","cubeCharge"}},
+            {typeof(SurvivorAbilities),new[]{"shieldLevel","incomingHits","orbHits","shield","shieldDelay","lifeTimer","auraTimer","invulnTimer","invulnerable","recoveryCooldown","recoveryRemaining","recoveryPerSecond","defenseDecay","~lastIncoming","cubeCharge","bombHits","bombCooldown","bombFlight","bombAim","bombOrigin","bombLanding","bombInFlight","bombImpactTime","bombImpactPosition","regenFxTime","regenFxPosition"}},
             {typeof(SurvivorAutoCombat),new[]{"@nextAttack","@nextFrostSound"}},
             {typeof(AnimationRunMana),new[]{"secondsSinceRun","exhausted","<CurrentMana>k__BackingField"}},
             {typeof(GodBossBleed),new[]{"source","elapsed","duration","nextTick","percent"}},

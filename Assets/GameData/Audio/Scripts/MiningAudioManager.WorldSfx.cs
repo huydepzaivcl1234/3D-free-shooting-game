@@ -61,15 +61,5 @@ namespace MiningSimulator.Ores
             nextWorldVoice = (index + 1) % worldSfxVoices.Length;
         }
 
-        public void PlayMiningImpactSfx(bool oreBroken, Vector3 position)
-        {
-            if (audioData == null) return;
-            if (!oreBroken)
-            {
-                if (Time.unscaledTime < nextAllowedMiningSfxTime) return;
-                nextAllowedMiningSfxTime = Time.unscaledTime + audioData.MiningSfxCooldown;
-            }
-            PlayWorldSfx(oreBroken ? audioData.OreBreakSfx : audioData.OreHitSfx, position);
-        }
     }
 }

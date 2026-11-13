@@ -17,7 +17,3 @@ MonoBehaviour:
   maximumCachedCorpses: 8
   corpseSeconds: 8
   maximumBodiesPerCorpse: 16
-  muscleSeconds: 0.7
-  spring: 18
-  damping: 3
-  maximumAngularAcceleration: 30

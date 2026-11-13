@@ -15,7 +15,7 @@ namespace GameData.Player.Script
         private bool saveBlocked;
         private const string Key="Survivor.DailyLoot.v1";
         [Serializable] private sealed class BoxProgress {public bool shiny,collected;public SurvivorLootBox.SavedBox runtime;}
-        [Serializable] private sealed class Progress {public int version=2,day=-1;public bool shiny,collected;public List<BoxProgress> boxes=new();}
+        [Serializable] private sealed class Progress {public int version=3,day=-1;public bool shiny,collected;public List<BoxProgress> boxes=new();}
         private Progress progress=new();
         private readonly RaycastHit[] groundHits=new RaycastHit[32];
         private readonly Collider[] obstacles=new Collider[32];
@@ -26,15 +26,12 @@ namespace GameData.Player.Script
         public bool CollectedToday {get {if(progress.day<0)return false;foreach(var box in progress.boxes)if(!box.collected)return false;return true;}}
         public int BoxesSpawned{get;private set;}
         private void Awake(){clock=GetComponent<DayNightSystem>();if(!clock)clock=FindAnyObjectByType<DayNightSystem>();cards=FindAnyObjectByType<MiningCardSystem>();Load();}
-        private void OnEnable(){if(!clock)clock=GetComponent<DayNightSystem>();if(clock)clock.PeriodChanged+=PeriodChanged;}
-        private void OnDisable(){if(clock)clock.PeriodChanged-=PeriodChanged;}
         private void Start()=>RefreshMorning();
-        private void PeriodChanged(MiningTimePeriod period){if(period==MiningTimePeriod.Day)RefreshMorning();}
-        private void Update(){if(!CollectedToday&&Time.time>=retryAt)RefreshMorning();}
+        private void Update(){if(!saveBlocked&&Time.time>=retryAt&&(progress.version<3||!CollectedToday))RefreshMorning();}
         private void Load()
         {
             string json=GameSave.GetString(Key,"");if(string.IsNullOrEmpty(json))return;
-            try{var p=JsonUtility.FromJson<Progress>(json);if(p==null||(p.version!=1&&p.version!=2)||p.day<0){saveBlocked=true;return;}if(p.version==1){p.boxes=new List<BoxProgress>{new(){shiny=p.shiny,collected=p.collected}};p.version=2;}
+            try{var p=JsonUtility.FromJson<Progress>(json);if(p==null||(p.version!=1&&p.version!=2&&p.version!=3)||p.day < -1 || (p.version==1 && p.day<0)){saveBlocked=true;return;}if(p.version==1){p.boxes=new List<BoxProgress>{new(){shiny=p.shiny,collected=p.collected}};p.version=2;}
                 if(p.boxes==null||p.boxes.Count>50||p.boxes.Exists(b=>b==null)){saveBlocked=true;return;}progress=p;}
             catch(ArgumentException){saveBlocked=true;}
         }
@@ -43,24 +40,59 @@ namespace GameData.Player.Script
         public void ResetProgress(){GameSave.DeleteKey(Key);progress=new();saveBlocked=false;ClearBoxes();retryAt=0;}
         public bool RefreshMorning()
         {
-            retryAt=Time.time+2;
-            if(saveBlocked||!data||!data.prefab||!clock||clock.CurrentPeriod!=MiningTimePeriod.Day&&!(progress.day==clock.DayNumber&&progress.boxes.Exists(b=>b.runtime!=null&&!b.collected))||!cards||!cards.Player||!cards.CanOfferAbilities)return false;
-            if(progress.day!=clock.DayNumber){
-                ClearBoxes();progress=new Progress{day=clock.DayNumber};
-                for(int i=0;i<Mathf.Clamp(data.boxesPerMorning,0,50);i++)progress.boxes.Add(new BoxProgress{shiny=UnityEngine.Random.value<data.shinyChancePercent*.01f});
-                Save();
+            if (RunCheckpoint.IsRestoring || (progress.day < 0 && Time.timeScale <= 0)) return false;
+            retryAt = Time.time + 2;
+            if (saveBlocked || !data || !data.prefab || !clock || !cards || !cards.Player) return false;
+
+            bool initializing = progress.day < 0 || progress.version < 3;
+            if (initializing)
+            {
+                if (progress.day < 0) progress.day = clock.DayNumber;
+                int count = Mathf.Clamp(data.startingBoxCount, 0, 50);
+                while (progress.boxes.Count < count)
+                    progress.boxes.Add(new BoxProgress { shiny = UnityEngine.Random.value < data.shinyChancePercent * .01f });
+                progress.version = 3;
             }
-            while(boxes.Count<progress.boxes.Count)boxes.Add(null);
-            bool spawned=false;
-            for(int i=0;i<progress.boxes.Count;i++){
-                if(progress.boxes[i].collected||boxes[i])continue;
-                Vector3 point;if(progress.boxes[i].runtime!=null)point=progress.boxes[i].runtime.landing;else if(!TryFindPosition(out point))continue;
-                var go=Instantiate(data.prefab,point+Vector3.up*data.dropHeight,Quaternion.Euler(0,UnityEngine.Random.Range(0,360),0),transform);
-                var box=go.GetComponent<SurvivorLootBox>();if(!box)box=go.AddComponent<SurvivorLootBox>();boxes[i]=box;
-                box.Configure(this,cards,progress.boxes[i].shiny);if(progress.boxes[i].runtime!=null)box.RestoreRuntime(progress.boxes[i].runtime);else box.BeginDrop(point);WorldActorVisibility.Attach(go);BoxesSpawned++;spawned=true;
+
+            while (boxes.Count < progress.boxes.Count) boxes.Add(null);
+            bool spawned = false;
+            bool saveNeeded = initializing;
+            for (int i = 0; i < progress.boxes.Count; i++)
+            {
+                var record = progress.boxes[i];
+                if (record.collected || boxes[i]) continue;
+                Vector3 point;
+                if (record.runtime != null)
+                    point = record.runtime.falling ? record.runtime.landing : record.runtime.position;
+                else if (Time.timeScale <= 0 || !TryFindPosition(out point))
+                    continue;
+
+                SpawnBox(i, point);
+                if (record.runtime == null)
+                {
+                    record.runtime = boxes[i].CaptureRuntime();
+                    saveNeeded = true;
+                }
+                spawned = true;
             }
+            if (saveNeeded) Save();
             return spawned;
         }
+
+        private void SpawnBox(int index, Vector3 point)
+        {
+            var record = progress.boxes[index];
+            var go = Instantiate(data.prefab, point,
+                Quaternion.Euler(0, UnityEngine.Random.Range(0, 360), 0), transform);
+            if (!go.TryGetComponent(out SurvivorLootBox box)) box = go.AddComponent<SurvivorLootBox>();
+            boxes[index] = box;
+
+            box.Configure(this, cards, record.shiny);
+            if (record.runtime != null) box.RestoreRuntime(record.runtime);
+            WorldActorVisibility.Attach(go);
+            BoxesSpawned++;
+        }
+
         public bool TryFindPosition(out Vector3 position)
         {
             position=default;if(!cards||!cards.Player||!data)return false;Vector3 origin=cards.Player.transform.position;
@@ -77,7 +109,7 @@ namespace GameData.Player.Script
                 int occupied=Physics.OverlapBoxNonAlloc(position+Vector3.up*.48f,new Vector3(.58f,.40f,.58f),obstacles,Quaternion.identity,~0,QueryTriggerInteraction.Ignore);
                 bool blocked=occupied>=obstacles.Length;
                 for(int i=0;i<occupied&&!blocked;i++)if(obstacles[i]&&obstacles[i].bounds.max.y>position.y+.12f)blocked=true;
-                foreach(var box in boxes)if(box&&((box.IsFalling?box.LandingPoint:box.transform.position)-position).sqrMagnitude<2.25f)blocked=true;
+                foreach(var box in boxes)if(box&&(box.transform.position-position).sqrMagnitude<2.25f)blocked=true;
                 if(!blocked){position+=Vector3.up*.04f;float actual=Vector3.Distance(position,origin);if(actual<min||actual>max)continue;return true;}
             }
             return false;
@@ -85,7 +117,7 @@ namespace GameData.Player.Script
         public bool TryOpen(SurvivorLootBox box)
         {
             int index=boxes.IndexOf(box);
-            if(!box||box.IsFalling||index<0||index>=progress.boxes.Count||progress.boxes[index].collected||!cards||!cards.Player||!cards.CanCollect||!data)return false;
+            if(!box||index<0||index>=progress.boxes.Count||progress.boxes[index].collected||!cards||!cards.Player||!cards.CanCollect||!data)return false;
             if(Vector3.Distance(cards.Player.transform.position,box.transform.position)>data.pickupRadius)return false;
             float boost=box.Shiny?1+Mathf.Max(0,data.shinyAbilityBonusPercent)*.01f:1;
             if(!cards.CollectBlueBox(boost))return false;

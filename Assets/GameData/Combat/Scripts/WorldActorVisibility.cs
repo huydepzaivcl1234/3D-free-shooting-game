@@ -87,8 +87,6 @@ namespace MiningSimulator.Ores
             var m = transform.localToWorldMatrix; var e = localBounds.extents;
             var x = m.MultiplyVector(new Vector3(e.x, 0, 0)); var y = m.MultiplyVector(new Vector3(0, e.y, 0)); var z = m.MultiplyVector(new Vector3(0, 0, e.z));
             var bounds=new Bounds(m.MultiplyPoint3x4(localBounds.center), new Vector3(Mathf.Abs(x.x) + Mathf.Abs(y.x) + Mathf.Abs(z.x), Mathf.Abs(x.y) + Mathf.Abs(y.y) + Mathf.Abs(z.y), Mathf.Abs(x.z) + Mathf.Abs(y.z) + Mathf.Abs(z.z)) * 2 + Vector3.one * padding * 2);
-            // A falling box advances when its landing area is visible, even above the camera.
-            if(TryGetComponent<GameData.Player.Script.SurvivorLootBox>(out var drop)&&drop.IsFalling)bounds.Encapsulate(drop.LandingPoint);
             return bounds;
         }
         public static void Cull(Camera view, GameplayPerformanceData data)

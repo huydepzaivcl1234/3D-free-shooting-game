@@ -197,7 +197,8 @@ namespace MiningSimulator.Ores
             float scale = rewards != null ? rewards.StatMultiplier(Level) : 1;
             float low = rewards != null ? Mathf.Max(0.01f, Mathf.Min(rewards.randomStatMultiplier.x, rewards.randomStatMultiplier.y)) : 1;
             float high = rewards != null ? Mathf.Max(low, Mathf.Max(rewards.randomStatMultiplier.x, rewards.randomStatMultiplier.y)) : 1;
-            scaledDamage = damage * scale * Random.Range(low, high) * (IsBoss ? bossSettings.damageMultiplier : 1f);
+            float levelDamage = definition is BreadMonsterData bread ? bread.AttackDamageAtLevel(Level) : damage * scale;
+            scaledDamage = levelDamage * Random.Range(low, high) * (IsBoss ? bossSettings.damageMultiplier : 1f);
             scaledBurnDamage = rewards != null ? rewards.burnDamagePerTick * scale : 0f;
             health.ConfigureSpawnHealth((CombatData != null ? CombatData.maxHealth : health.MaxHealth) * scale * Random.Range(low, high) * (IsBoss ? bossSettings.healthMultiplier : 1f));
             if (rewards != null)

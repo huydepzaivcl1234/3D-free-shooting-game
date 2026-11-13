@@ -1,4 +1,4 @@
-﻿using TMPro;
+using TMPro;
 using UnityEngine;
 using GameData.Player.Script;
 using System.Collections.Generic;
@@ -153,10 +153,19 @@ namespace MiningSimulator.Ores
             return false;
         }
         public GameObject Spawn(MiningCardData.Tier tier, Vector3 position)
+            => Spawn(tier, position, null);
+
+        internal bool TryDropQuestReward(bool ability, Vector3 launch, Vector3 landing)
+        {
+            if (!data || data.tiers == null || data.tiers.Length == 0) return false;
+            return Spawn(ability ? data.abilityCard : data.tiers[0], launch, landing) != null;
+        }
+
+        private GameObject Spawn(MiningCardData.Tier tier, Vector3 position, Vector3? landing)
         {
             if(data==null || tier==null || tier.prefab==null) return null;
             var root=new GameObject("World Card - "+tier.name);
-            root.transform.position=position+Vector3.up*data.spawnHeight;
+            root.transform.position=landing.HasValue ? position : position+Vector3.up*data.spawnHeight;
             var visual=Instantiate(tier.prefab,root.transform);
             visual.transform.localScale*=data.cardScale;
             // Keep authored visual intact, but do not let nested prefab colliders collect/block the player.
@@ -170,7 +179,17 @@ namespace MiningSimulator.Ores
             var box=root.AddComponent<BoxCollider>(); box.center=Vector3.zero;
             box.size=Vector3.Max(bounds.size,Vector3.one*.05f);
             var body=root.AddComponent<Rigidbody>();
-            body.AddForce(Vector3.up*data.upwardImpulse+Vector3.ProjectOnPlane(Random.onUnitSphere,Vector3.up)*data.sidewaysImpulse,ForceMode.Impulse);
+            if (landing.HasValue)
+            {
+                const float flightTime = 1.05f;
+                Vector3 destination = landing.Value + Vector3.up * (box.size.y * .5f);
+                body.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+                body.linearVelocity = (destination - position) / flightTime - Physics.gravity * (.5f * flightTime);
+                if (player && player.TryGetComponent<Collider>(out var playerCollider))
+                    Physics.IgnoreCollision(box, playerCollider);
+            }
+            else
+                body.AddForce(Vector3.up*data.upwardImpulse+Vector3.ProjectOnPlane(Random.onUnitSphere,Vector3.up)*data.sidewaysImpulse,ForceMode.Impulse);
             root.AddComponent<MiningWorldCard>().Configure(this,data,tier);
             return root;
         }

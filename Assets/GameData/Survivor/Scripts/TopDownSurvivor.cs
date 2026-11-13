@@ -34,9 +34,19 @@ namespace GameData.Player.Script
         private Quaternion deathStartRotation;
         private Renderer[] deathObstacles=System.Array.Empty<Renderer>();
         private readonly Dictionary<Renderer,bool> hiddenForDeath=new();
+        private float shakeDistance, shakeSeconds, shakeElapsed;
+
+        internal void ShakeSideways(float distance, float seconds)
+        {
+            shakeDistance = distance;
+            shakeSeconds = seconds;
+            shakeElapsed = 0;
+        }
+
         public void BeginDeathView(float seconds)
         {
             if(!viewCamera)return;
+            shakeSeconds=0;
             deathView=true;deathDuration=Mathf.Max(.1f,seconds);deathElapsed=0;deathStartTime=Time.unscaledTime;
             deathYaw=viewCamera.transform.eulerAngles.y;deathStartPosition=viewCamera.transform.position;
             deathStartRotation=viewCamera.transform.rotation;deathStartFov=viewCamera.fieldOfView;
@@ -141,7 +151,15 @@ namespace GameData.Player.Script
             // Retract immediately for safety, but ease back out after an obstruction clears.
             if(distance<collisionDistance){collisionDistance=distance;collisionVelocity=0;}
             else collisionDistance=Mathf.SmoothDamp(collisionDistance,distance,ref collisionVelocity,.18f,Mathf.Infinity,dt);
-            viewCamera.transform.SetPositionAndRotation(smoothedFocus+backwards*collisionDistance,rotation);
+            var cameraPosition = smoothedFocus + backwards * collisionDistance;
+            if (shakeElapsed < shakeSeconds)
+            {
+                shakeElapsed = Mathf.Min(shakeSeconds, shakeElapsed + dt);
+                float progress = shakeElapsed / shakeSeconds;
+                float offset = Mathf.Sin(progress * 4 * Mathf.PI) * (1 - progress) * shakeDistance;
+                cameraPosition += rotation * Vector3.right * offset;
+            }
+            viewCamera.transform.SetPositionAndRotation(cameraPosition, rotation);
             viewCamera.orthographic=false;viewCamera.fieldOfView=fieldOfView;
             viewCamera.nearClipPlane=.1f;viewCamera.farClipPlane=250;
         }

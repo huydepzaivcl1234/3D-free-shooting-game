@@ -32,7 +32,9 @@ namespace MiningSimulator.Ores
         public CharacterHealth Health => health;
         public int EncounterDay { get; private set; }
         public int AppearanceNumber {get;private set;}=1;
-        public float DamageMultiplier=>data?data.DamageMultiplier(AppearanceNumber):1;
+        public float ShrineStrength { get; private set; }
+        public float DamageMultiplier => ShrineStrength > 0 ? ShrineStrength : data ? data.DamageMultiplier(AppearanceNumber) : 1;
+        public float ExperienceMultiplier => ShrineStrength > 0 ? ShrineStrength : 1;
         public Vector3 JumpTarget => jumpTarget;
         public event System.Action<GodBossController> Defeated;
 
@@ -60,16 +62,19 @@ namespace MiningSimulator.Ores
             if (motor && playerBody) Physics.IgnoreCollision(motor, playerBody, originalPlayerIgnore);
             landingIgnoresPlayer = false;
         }
-        public void Initialize(MonsterSpawnZone owner, CharacterHealth target, int day,int appearance=1)
+        public void Initialize(MonsterSpawnZone owner, CharacterHealth target, int day,int appearance=1,float shrineStrength=0)
         {
             RestorePlayerCollision();
             zone = owner; player = target; EncounterDay = day;
             playerBody = player ? player.GetComponent<Collider>() : null;
             playerMotor = player ? player.GetComponent<PlayerController1>() : null;
             AppearanceNumber=Mathf.Max(1,appearance);
-            health.ConfigureSpawnHealth(data.health*data.HealthMultiplier(AppearanceNumber));
+            ShrineStrength = shrineStrength;
+            float healthMultiplier = ShrineStrength > 0 ? ShrineStrength : data.HealthMultiplier(AppearanceNumber);
+            float defenseMultiplier = ShrineStrength > 0 ? ShrineStrength : 1;
+            health.ConfigureSpawnHealth(data.health * healthMultiplier);
             health.ConfigureRegeneration(0, 5);
-            health.ConfigureDefenses(data.armor, data.magicResistance);
+            health.ConfigureDefenses(data.armor * defenseMultiplier, data.magicResistance * defenseMultiplier);
             float oldHeight = motor.height;
             if (animator && oldHeight > 0)
             {
@@ -243,7 +248,7 @@ namespace MiningSimulator.Ores
             {
                 var bleed = player.GetComponent<GodBossBleed>();
                 if (!bleed) bleed = player.gameObject.AddComponent<GodBossBleed>();
-                bleed.Apply(data.bleedMaxHealthPercentPerSecond, data.bleedDuration, gameObject);
+                bleed.Apply(data.bleedMaxHealthPercentPerSecond * DamageMultiplier, data.bleedDuration, gameObject);
             }
         }
         private void StartWave()

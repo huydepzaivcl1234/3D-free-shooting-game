@@ -4,7 +4,7 @@ using UnityEngine;
 using MiningSimulator.Ores;
 namespace GameData.Player.Script
 {
-    public enum SurvivorUpgradeId { PhysicalDamage,AttackSpeed,ReloadSpeed,AttackRange,ProjectileSpeed,Armor,MagicResistance,MoveSpeed,Magazine,LifeSteal,Regeneration,MaxHealth,SplitShot,FleetForce,ArmorStrike,LifeSpring,PowerSurge,Burn,ProjectileSize,Shield,Airborne,Aura,Ricochet,Invulnerability,Quickening,FlatPower,TwinMagic,ReactiveArmor,Weaken,EmergencyHeal,Retaliate,BossVitality,DoubleBasics,OrbBarrage,TripleBasics,Frostbite,CardFortune,TrueBarrage,TitanBlessing,MissingHealthArmor,ChargedCube,CardMagnet,FlyingSword,Count }
+    public enum SurvivorUpgradeId { PhysicalDamage,AttackSpeed,ReloadSpeed,AttackRange,ProjectileSpeed,Armor,MagicResistance,MoveSpeed,Magazine,LifeSteal,Regeneration,MaxHealth,SplitShot,FleetForce,ArmorStrike,LifeSpring,PowerSurge,Burn,ProjectileSize,Shield,Airborne,Aura,Ricochet,Invulnerability,Quickening,FlatPower,TwinMagic,ReactiveArmor,Weaken,EmergencyHeal,Retaliate,BossVitality,DoubleBasics,OrbBarrage,TripleBasics,Frostbite,CardFortune,TrueBarrage,TitanBlessing,MissingHealthArmor,ChargedCube,CardMagnet,FlyingSword,LegendaryBomb,Count }
     [CreateAssetMenu(menuName="Survivor/Upgrade Cards")]
     public sealed class SurvivorUpgradeData : ScriptableObject
     {
@@ -21,13 +21,14 @@ namespace GameData.Player.Script
         }
         [Serializable] public struct Offer { public SurvivorUpgradeId id; public int rarity; public float amount; public bool shiny; }
         public SurvivorAbilityData abilityData;
-        public string Title(SurvivorUpgradeId id)=>abilityData&&abilityData.Find(id)!=null?abilityData.Find(id).title:Find(id)?.title??"";
+        public string Title(SurvivorUpgradeId id)=>id==SurvivorUpgradeId.LegendaryBomb&&abilityData&&abilityData.legendary.giantBomb.title=="Giant Bomb"?MiningLocalization.TextKey("SURVIVOR_GIANT_BOMB", "Giant Bomb"):abilityData&&abilityData.Find(id)!=null?abilityData.Find(id).title:Find(id)?.title??"";
         public string Description(SurvivorUpgradeId id)=>abilityData&&abilityData.Find(id)!=null?abilityData.Description(id):Find(id)?.description??"";
         public const int LevelCap=99;
         [HideInInspector]
         [Min(0)] public float commonWeight=80,uncommonWeight=17,rareWeight=3;
         public Color commonColor=new(.65f,.70f,.66f),uncommonColor=new(.45f,.83f,.69f),rareColor=new(.70f,.60f,.93f);
         public Definition[] definitions={
+            new(){id=SurvivorUpgradeId.LegendaryBomb,title="Giant Bomb",description="Lob a giant bomb after dealing damage 100 times.",amount=1,unit=""},
             new(){id=SurvivorUpgradeId.MissingHealthArmor,title="Last Stand",description="Gain armor and magic resistance for every 10 missing health",amount=1,unit=""},
             new(){id=SurvivorUpgradeId.CardMagnet,title="Card Magnet",description="Automatically pull nearby dropped cards toward you.",amount=1,unit=""},
             new(){id=SurvivorUpgradeId.ChargedCube,title="Arcane Cube",description="Charge a growing cube for 10 seconds, then launch it at the nearest enemy",amount=1,unit=""},

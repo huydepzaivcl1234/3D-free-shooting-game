@@ -244,6 +244,14 @@ public void ConfigureMaximumHealth(float value, bool preserveDamage = true)
             Refresh(false, UpdateAnim.Heal);
         }
 
+        internal void Regenerate(float amount)
+        {
+            float before = health;
+            Heal(amount);
+            if (!IsMonster && health > before && Abilities)
+                Abilities.ShowRegeneration();
+        }
+
         private void OnEnable()
         {
             if(IsMonster)activeMonsters.Add(this);
@@ -283,7 +291,7 @@ public void ConfigureMaximumHealth(float value, bool preserveDamage = true)
             if (regenTimer < interval) return;
             int ticks = Mathf.FloorToInt(regenTimer / interval);
             regenTimer -= ticks * interval;
-            Heal(RegenAmount * ticks);
+            Regenerate(RegenAmount * ticks);
         }
 
         private void TickBurn(float deltaTime)

@@ -10,6 +10,7 @@ public static class BreadMonsterInspector
     public static void Draw(SerializedObject so)
     {
         so.Update();
+        Field(so,"tier","Monster tier");
         Field(so,"minimumSpawnDay","First day this species can spawn");
         var data=(BreadMonsterData)so.targetObject;
         EditorGUILayout.LabelField("BREAD MONSTER", EditorStyles.boldLabel);
@@ -20,7 +21,7 @@ public static class BreadMonsterInspector
         healGizmo=EditorGUILayout.Toggle("Also show healing radius",healGizmo);
         EditorGUILayout.HelpBox("Orange = melee range + swing arc. Cyan = maximum throw range. Ranges scale with the scene monster. Keep Scene Gizmos enabled.",MessageType.None);
         if(Group(ref stats,"Health, movement & magic damage")){
-            Fields(so,"combat.maxHealth","combat.damage","combat.attackSpeed","combat.attackCooldown","combat.moveSpeed","combat.detectionRange","armor","magicResistance");
+            Fields(so,"combat.maxHealth","combat.damage","attackDamagePerLevel","combat.attackSpeed","combat.attackCooldown","combat.moveSpeed","combat.detectionRange","armor","magicResistance");
         }
         if(Group(ref melee,"Melee — slice swing")){
             Field(so,"combat.attackRange","Melee range (m)");

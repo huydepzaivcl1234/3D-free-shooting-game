@@ -14,7 +14,7 @@ namespace MiningSimulator.Ores
         public int EvictedCount{get;private set;}
         sealed class Corpse {
             public Object species;public GameObject visual;public Rigidbody[] bodies;public Collider[] shapes;
-            public Transform[] transforms;public string[] paths;public ActiveRagdollMuscles muscles;public float expires;
+            public Transform[] transforms, bodyParents;public string[] paths;public float expires;
         }
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]static void ResetStatics()=>scenes.Clear();
         void Awake(){int layer=LayerMask.NameToLayer("Ragdoll");if(layer<0)return;foreach(var name in new[]{"Ragdoll","Enemy","LocalPlayerBody"}){int other=LayerMask.NameToLayer(name);if(other>=0)Physics.IgnoreLayerCollision(layer,other,true);}}
@@ -35,18 +35,27 @@ namespace MiningSimulator.Ores
             Corpse corpse=null;
             for(int i=free.Count-1;i>=0;i--)if(free[i].species==owner.SpeciesData){corpse=free[i];free.RemoveAt(i);ReusedCount++;break;}
             if(corpse==null){corpse=Build(source,owner.SpeciesData,data.maximumBodiesPerCorpse);CreatedCount++;}
+            for (int i = 0; i < corpse.bodies.Length; i++)
+                corpse.bodies[i].transform.SetParent(corpse.bodyParents[i], false);
             corpse.visual.transform.SetPositionAndRotation(source.position,source.rotation);corpse.visual.transform.localScale=source.lossyScale;
             for(int i=0;i<corpse.transforms.Length;i++){
                 var from=string.IsNullOrEmpty(corpse.paths[i])?source:source.Find(corpse.paths[i]);if(!from)continue;
                 if(i!=0){corpse.transforms[i].localPosition=from.localPosition;corpse.transforms[i].localRotation=from.localRotation;corpse.transforms[i].localScale=from.localScale;}
             }
             corpse.visual.SetActive(true);
-            foreach(var body in corpse.bodies){body.isKinematic=true;var joint=body.GetComponent<CharacterJoint>();if(joint&&joint.connectedBody)joint.connectedAnchor=joint.connectedBody.transform.InverseTransformPoint(body.transform.TransformPoint(joint.anchor));}
+            foreach (var body in corpse.bodies)
+                if (body.transform != corpse.visual.transform) body.transform.SetParent(corpse.visual.transform, true);
             foreach(var shape in corpse.shapes)shape.enabled=true;
-            Physics.SyncTransforms();
-            foreach(var body in corpse.bodies){body.isKinematic=false;body.useGravity=true;body.linearVelocity=Vector3.ClampMagnitude(velocity,25);body.angularVelocity=Vector3.zero;body.WakeUp();}
-            if(velocity.sqrMagnitude<1)corpse.bodies[0].AddForce((-owner.transform.forward+owner.transform.right*.15f)*.65f,ForceMode.VelocityChange);
-            corpse.muscles.Begin(corpse.bodies);corpse.expires=Time.time+data.corpseSeconds;active.Add(corpse);
+            RagdollPhysics.Release(corpse.bodies, velocity, Vector3.zero);
+            if (velocity.sqrMagnitude < 1f)
+            {
+                Vector3 fallDirection = -owner.transform.forward;
+                if (owner.SpeciesData is PotionMonsterData)
+                    RagdollPhysics.TipStandingCorpse(corpse.bodies, fallDirection + owner.transform.right * .4f, 5f);
+                else
+                    RagdollPhysics.TipStandingCorpse(corpse.bodies, fallDirection);
+            }
+            corpse.expires=Time.time+data.corpseSeconds;active.Add(corpse);
         }
         Corpse Build(Transform source,Object species,int bodyLimit)
         {
@@ -69,28 +78,67 @@ namespace MiningSimulator.Ores
             var bodies=new List<Rigidbody>();
             foreach(var t in all){if(!candidates.Contains(t)||bodies.Count>=bodyLimit)continue;string n=t.name.ToLowerInvariant();
                 if(n=="root"||n.Contains("finger")||n.Contains("thumb")||n.Contains("index")||n.Contains("middle")||n.Contains("ring")||n.Contains("pinky")||n.Contains("little")||n.Contains("eye")||n.Contains("brow")||n.Contains("tongue")||n.Contains("mouth")||n.Contains("cork")||n.Contains("neck")||n.Contains("headtop"))continue;
-                var body=t.GetComponent<Rigidbody>();if(!body)body=t.gameObject.AddComponent<Rigidbody>();body.isKinematic=true;body.useGravity=false;body.mass=bodies.Count==0?3:1;body.maxAngularVelocity=12;body.maxDepenetrationVelocity=2;body.interpolation=RigidbodyInterpolation.Interpolate;bodies.Add(body);
+                var body=t.GetComponent<Rigidbody>();if(!body)body=t.gameObject.AddComponent<Rigidbody>();body.isKinematic=true;body.useGravity=false;body.mass=bodies.Count==0?3:1;bodies.Add(body);
             }
             if(bodies.Count==0){var b=visual.GetComponent<Rigidbody>();if(!b)b=visual.AddComponent<Rigidbody>();b.isKinematic=true;bodies.Add(b);}
             var shapes=new List<Collider>();
             for(int i=0;i<bodies.Count;i++){
-                var body=bodies[i];var shape=body.GetComponent<Collider>();float scale=Mathf.Max(.0001f,Mathf.Max(Mathf.Abs(body.transform.lossyScale.x),Mathf.Abs(body.transform.lossyScale.y)));
-                if(!shape){var sphere=body.gameObject.AddComponent<SphereCollider>();sphere.radius=(i==0?.3f:.1f)/scale;shape=sphere;}
-                if(i==0){var glass=visual.transform.Find("PotionMonster_Rig/Root/Body/Glass_Body");if(glass&&glass.TryGetComponent<Renderer>(out var renderer)){Destroy(shape);var box=body.gameObject.AddComponent<BoxCollider>();box.center=body.transform.InverseTransformPoint(renderer.bounds.center);box.size=renderer.bounds.size/scale;shape=box;}}
+                var body = bodies[i];
+                Collider shape;
+                var glass = i == 0 ? visual.transform.Find("PotionMonster_Rig/Root/Body/Glass_Body") : null;
+                if (glass && glass.TryGetComponent<Renderer>(out var renderer))
+                {
+                    var local = renderer.localBounds;
+                    var toBody = body.transform.worldToLocalMatrix * glass.localToWorldMatrix;
+                    var bounds = new Bounds(toBody.MultiplyPoint3x4(local.center), Vector3.zero);
+                    for (int corner = 0; corner < 8; corner++)
+                    {
+                        var vertex = new Vector3(
+                            (corner & 1) == 0 ? local.min.x : local.max.x,
+                            (corner & 2) == 0 ? local.min.y : local.max.y,
+                            (corner & 4) == 0 ? local.min.z : local.max.z);
+                        bounds.Encapsulate(toBody.MultiplyPoint3x4(vertex));
+                    }
+                    var box = body.gameObject.AddComponent<BoxCollider>();
+                    box.center = bounds.center;
+                    box.size = bounds.size;
+                    shape = box;
+                }
+                else
+                {
+                    float scale = Mathf.Max(.0001f, Mathf.Abs(body.transform.lossyScale.x), Mathf.Abs(body.transform.lossyScale.y), Mathf.Abs(body.transform.lossyScale.z));
+                    var sphere = body.gameObject.AddComponent<SphereCollider>();
+                    sphere.radius = (i == 0 ? .3f : .1f) / scale;
+                    shape = sphere;
+                }
                 shape.isTrigger=false;shapes.Add(shape);
                 Rigidbody parent=null;for(var t=body.transform.parent;t&&t!=visual.transform.parent;t=t.parent){var b=t.GetComponent<Rigidbody>();if(b&&bodies.Contains(b)){parent=b;break;}}
-                if(parent){var joint=body.GetComponent<CharacterJoint>();if(!joint)joint=body.gameObject.AddComponent<CharacterJoint>();joint.connectedBody=parent;joint.anchor=Vector3.zero;joint.autoConfigureConnectedAnchor=false;joint.connectedAnchor=parent.transform.InverseTransformPoint(body.position);joint.lowTwistLimit=new SoftJointLimit{limit=-35};joint.highTwistLimit=new SoftJointLimit{limit=35};joint.swing1Limit=new SoftJointLimit{limit=45};joint.swing2Limit=new SoftJointLimit{limit=35};joint.enablePreprocessing=false;}
+                // Potion's arms and legs are siblings of Body, so link each detached branch to the core.
+                if (!parent && i > 0) parent = bodies[0];
+                if (parent)
+                {
+                    var joint = body.gameObject.AddComponent<CharacterJoint>();
+                    joint.connectedBody = parent;
+                    joint.anchor = Vector3.zero;
+                    Vector3 axis = body.name.Contains("Shin") ? source.right : body.transform.up;
+                    if (body.name.Contains("Forearm")) axis = source.up;
+                    joint.axis = body.transform.InverseTransformDirection(axis);
+                    var swingAxis = Mathf.Abs(Vector3.Dot(axis, source.forward)) < .9f ? source.forward : source.up;
+                    joint.swingAxis = body.transform.InverseTransformDirection(Vector3.ProjectOnPlane(swingAxis, axis).normalized);
+                }
             }
             for(int i=0;i<shapes.Count;i++)for(int j=i+1;j<shapes.Count;j++)Physics.IgnoreCollision(shapes[i],shapes[j]);
             var player=FindAnyObjectByType<PlayerStats>();if(player)foreach(var c in player.GetComponentsInChildren<Collider>(true))foreach(var s in shapes)Physics.IgnoreCollision(s,c);
-            var corpse=new Corpse{species=species,visual=visual,bodies=bodies.ToArray(),shapes=shapes.ToArray(),transforms=all,paths=new string[all.Length],muscles=visual.AddComponent<ActiveRagdollMuscles>()};
+            var corpse=new Corpse{species=species,visual=visual,bodies=bodies.ToArray(),shapes=shapes.ToArray(),transforms=all,paths=new string[all.Length]};
+            corpse.bodyParents = new Transform[corpse.bodies.Length];
+            for (int i = 0; i < corpse.bodies.Length; i++) corpse.bodyParents[i] = corpse.bodies[i].transform.parent;
             for(int i=0;i<all.Length;i++)corpse.paths[i]=Path(all[i],visual.transform);
             visual.SetActive(false);return corpse;
         }
         static string Path(Transform t,Transform root){if(t==root)return "";string path=t.name;while(t.parent&&t.parent!=root){t=t.parent;path=t.name+"/"+path;}return path;}
         void Release(int index,RagdollSettings data)
         {
-            var c=active[index];active.RemoveAt(index);c.muscles.Stop();foreach(var b in c.bodies){if(!b.isKinematic){b.linearVelocity=Vector3.zero;b.angularVelocity=Vector3.zero;}b.isKinematic=true;}foreach(var s in c.shapes)if(s)s.enabled=false;c.visual.SetActive(false);free.Add(c);
+            var c=active[index];active.RemoveAt(index);foreach(var b in c.bodies){if(!b.isKinematic){b.linearVelocity=Vector3.zero;b.angularVelocity=Vector3.zero;}b.isKinematic=true;}foreach(var s in c.shapes)if(s)s.enabled=false;c.visual.SetActive(false);free.Add(c);
             while(free.Count>Mathf.Max(0,data.maximumCachedCorpses)){var old=free[0];free.RemoveAt(0);Destroy(old.visual);}
         }
         void Update(){var data=RagdollSettings.Current;if(!data)return;for(int i=active.Count-1;i>=0;i--)if(Time.time>=active[i].expires)Release(i,data);while(active.Count>Mathf.Max(1,data.maximumActiveCorpses)){Release(0,data);EvictedCount++;}}

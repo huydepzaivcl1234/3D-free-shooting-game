@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 36973a08ba8edcc4bbb66de1a1b0eb2e, type: 3}
   m_Name: GolemRewards
   m_EditorClassIdentifier: Assembly-CSharp::MiningSimulator.Ores.GolemData
+  tier: 2
   minimumPlayerLevelToSpawn: 5
   minimumSpawnDay: 10
   combat:

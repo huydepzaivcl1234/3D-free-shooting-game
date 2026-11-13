@@ -32,11 +32,12 @@ namespace GameData.Player.Script
         private void Awake(){stats=GetComponent<PlayerStats>();health=GetComponent<CharacterHealth>();combat=GetComponent<SurvivorAutoCombat>();}
         private void OnEnable(){CharacterHealth.AnyDamaged+=OnDamage;CharacterHealth.AnyDied+=OnDeath;}
         private void Start(){ResetLife();if(health&&health.HealthBar&&!GetComponent<PlayerShieldBar>())gameObject.AddComponent<PlayerShieldBar>();}
-        public void ResetLife(){ResetSword();ResetCube();shieldLevel=Level(SurvivorUpgradeId.Shield);shield=MaxShield;shieldDelay=lifeTimer=auraTimer=invulnTimer=invulnerable=recoveryCooldown=recoveryRemaining=0;incomingHits=orbHits=0;attackers.Clear();}
-        private void OnDisable(){ResetSword();ResetCube();CharacterHealth.AnyDamaged-=OnDamage;CharacterHealth.AnyDied-=OnDeath;attackers.Clear();if(auraEffect)auraEffect.SetActive(false);if(shieldEffect)shieldEffect.SetActive(false);}
+        public void ResetLife(){ResetSword();ResetCube();ResetBomb();shieldLevel=Level(SurvivorUpgradeId.Shield);shield=MaxShield;shieldDelay=lifeTimer=auraTimer=invulnTimer=invulnerable=recoveryCooldown=recoveryRemaining=0;incomingHits=orbHits=0;attackers.Clear();}
+        private void OnDisable(){ResetSword();ResetCube();ResetBomb();CharacterHealth.AnyDamaged-=OnDamage;CharacterHealth.AnyDied-=OnDeath;attackers.Clear();if(auraEffect)auraEffect.SetActive(false);if(shieldEffect)shieldEffect.SetActive(false);}
         private void Update()
         {
-            if(!health||health.Health<=0){ResetSword();ResetCube();if(auraEffect)auraEffect.SetActive(false);if(shieldEffect)shieldEffect.SetActive(false);return;}
+            if(!health||health.Health<=0){ResetSword();ResetCube();ResetBomb();if(auraEffect)auraEffect.SetActive(false);if(shieldEffect)shieldEffect.SetActive(false);return;}
+            TickBombEffects(Time.deltaTime);
             if(!combat||!combat.CanAttack)return;
             Tick(Time.deltaTime);
         }
@@ -50,7 +51,7 @@ namespace GameData.Player.Script
             lv=Level(SurvivorUpgradeId.Invulnerability);
             if(lv>0){invulnTimer+=dt;if(invulnTimer>=Mathf.Max(.01f,Mathf.Max(Settings.uncommon.invulnerability.minimumCooldown,Settings.uncommon.invulnerability.cooldown.At(lv)))){invulnTimer=0;invulnerable=Settings.uncommon.invulnerability.duration;}}
             lv=Level(SurvivorUpgradeId.LifeSpring);
-            if(lv>0){lifeTimer+=dt;var h=Settings.common.lifeSpring;float interval=Mathf.Max(.01f,h.interval);if(lifeTimer>=interval){lifeTimer-=interval;health.Heal(h.flatHealing.At(lv)+h.maxHealthPercent*.01f*health.MaxHealth);}}
+            if(lv>0){lifeTimer+=dt;var h=Settings.common.lifeSpring;float interval=Mathf.Max(.01f,h.interval);if(lifeTimer>=interval){lifeTimer-=interval;health.Regenerate(h.flatHealing.At(lv)+h.maxHealthPercent*.01f*health.MaxHealth);}}
             recoveryCooldown=Mathf.Max(0,recoveryCooldown-dt);
             lv=Level(SurvivorUpgradeId.EmergencyHeal);
             if(lv>0&&recoveryCooldown==0&&health.Health<=health.MaxHealth*Settings.rare.emergencyHeal.healthThresholdPercent*.01f){var e=Settings.rare.emergencyHeal;recoveryRemaining=Mathf.Max(.01f,e.duration);recoveryPerSecond=health.MaxHealth*e.healMaxHealthPercent*.01f/recoveryRemaining;recoveryCooldown=Mathf.Max(.01f,Mathf.Max(e.minimumCooldown,e.cooldown.At(lv)));}
@@ -62,6 +63,7 @@ namespace GameData.Player.Script
             SurvivorLoopVfx.Set(ref shieldEffect,Settings.uncommon.shield.visual,transform,shield>0||Invulnerable);
             TickCube(dt);
             TickSword(dt);
+            TickBomb(dt);
         }
         public float ReceiveHit(float amount,GameObject source)
         {
@@ -75,7 +77,9 @@ namespace GameData.Player.Script
         }
         private void OnDamage(CharacterHealth victim,float dealt,GameObject source,bool basic,CombatDamageType type)
         {
-            if(!isActiveAndEnabled||processing||!victim||!victim.IsMonster||source!=gameObject||dealt<=0)return;
+            if(!isActiveAndEnabled||!victim||!victim.IsMonster||source!=gameObject||dealt<=0)return;
+            RecordBombHit(victim);
+            if(processing)return;
             processing=true;
             try{
                 int weaken=Level(SurvivorUpgradeId.Weaken),air=Level(SurvivorUpgradeId.Airborne);
@@ -132,6 +136,6 @@ namespace GameData.Player.Script
         {
             list.Clear();foreach(var target in CharacterHealth.ActiveMonsters)if(target&&target.isActiveAndEnabled&&target.IsTargetable&&(planar?Vector3.ProjectOnPlane(target.transform.position-point,Vector3.up):target.transform.position-point).sqrMagnitude<=range*range)list.Add(target);
         }
-        private void OnDestroy(){DestroySword();DestroyCube();if(auraEffect)Destroy(auraEffect);if(shieldEffect)Destroy(shieldEffect);}
+        private void OnDestroy(){DestroySword();DestroyCube();DestroyBomb();if(auraEffect)Destroy(auraEffect);if(shieldEffect)Destroy(shieldEffect);}
     }
 }

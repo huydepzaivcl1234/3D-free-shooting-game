@@ -19,10 +19,10 @@ namespace MiningSimulator.Ores
             foreach(var animator in GetComponentsInChildren<Animator>())animator.enabled=false;
             foreach(var shape in shapes)if(shape)shape.enabled=true;
             for(int i=0;i<shapes.Length;i++)for(int j=i+1;j<shapes.Length;j++)if(shapes[i]&&shapes[j])Physics.IgnoreCollision(shapes[i],shapes[j]);
-            foreach(var bone in bones)if(bone){var joint=bone.GetComponent<CharacterJoint>();if(joint&&joint.connectedBody)joint.connectedAnchor=joint.connectedBody.transform.InverseTransformPoint(bone.transform.TransformPoint(joint.anchor));}
-            Physics.SyncTransforms();
-            foreach(var bone in bones)if(bone){bone.isKinematic=false;bone.interpolation=RigidbodyInterpolation.Interpolate;bone.useGravity=true;bone.linearVelocity=Vector3.ClampMagnitude(velocity,25);bone.WakeUp();}
-            bones[0].AddForce((-transform.forward+Vector3.right*.2f)*.65f,ForceMode.VelocityChange);
+            foreach (var bone in bones) if (bone) bone.transform.SetParent(transform, true);
+            RagdollPhysics.Release(bones, velocity, Vector3.zero);
+            if (velocity.sqrMagnitude < 1f && bones[0])
+                RagdollPhysics.TipStandingCorpse(bones, -transform.forward);
         }
     }
 }

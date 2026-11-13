@@ -12,6 +12,7 @@ namespace GameData.Player.Manager
         public bool LookIsMouse => _lookAction?.activeControl == null || _lookAction.activeControl.device is Mouse;
         public bool Run { get; private set; }
         public bool Jump { get; private set; }
+        public bool HiEmotePressed { get; private set; }
         public event System.Action JumpPressed;
         [System.NonSerialized] private InputActionMap _currentMap;
         [System.NonSerialized] private InputAction _moveAction, _lookAction, _runAction, _jumpAction;
@@ -32,14 +33,18 @@ namespace GameData.Player.Manager
                 _moveAction=map?.FindAction("Move");_lookAction=map?.FindAction("Look");
                 _runAction=map?.FindAction("Run");_jumpAction=map?.FindAction("Jump");
             }
+            HiEmotePressed = false;
             if(map==null||!map.enabled){Move=Look=Vector2.zero;Run=Jump=false;return;}
             Move=_moveAction?.ReadValue<Vector2>()??Vector2.zero;
             Look=_lookAction?.ReadValue<Vector2>()??Vector2.zero;
             Run=_runAction?.IsPressed()??false;Jump=_jumpAction?.IsPressed()??false;
             if(_jumpAction?.WasPressedThisFrame()==true)JumpPressed?.Invoke();
+            var keyboard = Keyboard.current;
+            HiEmotePressed = keyboard != null && keyboard.digit1Key.wasPressedThisFrame &&
+                (keyboard.leftCtrlKey.isPressed || keyboard.rightCtrlKey.isPressed);
         }
         private void OnEnable(){_currentMap=null;_moveAction=_lookAction=_runAction=_jumpAction=null;}
-        private void OnDisable(){OnEnable();Move=Look=Vector2.zero;Run=Jump=false;}
+        private void OnDisable(){OnEnable();Move=Look=Vector2.zero;Run=Jump=HiEmotePressed=false;}
     }
 }
 

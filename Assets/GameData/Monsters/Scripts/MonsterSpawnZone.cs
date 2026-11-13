@@ -17,6 +17,8 @@ namespace MiningSimulator.Ores
         [Min(0f)] public float chance = 100f;
         [Tooltip("This species enters the daily spawn pool at this player level. Boss rules still apply separately.")]
         [HideInInspector,Min(1)] public int minimumPlayerLevel = 1;
+        [Min(0f), Tooltip("Elapsed stage seconds before this species joins the world spawn pool.")]
+        public float firstSpawnSecond;
         public int RequiredSpawnDay=>prefab&&prefab.SpeciesData?Mathf.Max(1,prefab.SpeciesData.minimumSpawnDay):1;
         public int RequiredPlayerLevel=>Mathf.Max(Mathf.Max(1,minimumPlayerLevel),prefab&&prefab.SpeciesData?prefab.SpeciesData.minimumPlayerLevelToSpawn:1);
     }
@@ -64,12 +66,11 @@ namespace MiningSimulator.Ores
                 if (!started || dayNight == null || scheduledDay != dayNight.DayNumber) return false;
                 if(SurvivorCrowd.Current&&SurvivorCrowd.Current.CountFor(this)>0)return false;
                 if (godBoss && godBoss.Health && godBoss.Health.Health > 0f) return false;
-                if (IsGodDay && GameSave.GetInt(GodDefeatedDayKey) != SpawnDayNumber) return false;
                 foreach (var monster in alive)
                     if (monster && monster.isActiveAndEnabled && !monster.IsDespawning &&
                         monster.Health && monster.Health.Health > 0f) return false;
                 if (dayNight.CurrentPeriod == SpawnPeriod && nextWave < waves.Count) return false;
-                if (!IsGodDay && dayNight.CurrentPeriod == MiningTimePeriod.Night &&
+                if (dayNight.CurrentPeriod == MiningTimePeriod.Night &&
                     additionalRoster != null && !RuneStation.PlayerUsesRuneTime)
                 {
                     if (CanSpawnSpecies(additionalRoster.nightThief) &&
@@ -93,6 +94,9 @@ namespace MiningSimulator.Ores
         [HideInInspector,Min(.5f), SerializeField] private float maximumSpawnDistance = 7f;
         [SerializeField] private MonsterSpawnSettings spawnSettings;
         public MonsterSpawnSettings SpawnSettings => spawnSettings;
+        [SerializeField] private MonsterSpawnWorld spawnWorld;
+        private bool UsesWorldSchedule => PlayerHuntMode && spawnSettings && spawnSettings.HasWorldSchedules;
+        private IReadOnlyList<MonsterSpawnEntry> RegularEntries => UsesWorldSchedule ? spawnSettings.EntriesFor(spawnWorld) : monsters;
         public Vector3 SpawnCenter => requireTreasureChest && TreasureChest.Active ? TreasureChest.Active.transform.position : spawnSettings && spawnSettings.followPlayer && player ? player.transform.position : transform.position;
         public float SpawnMinimumDistance => Mathf.Max(.5f, requireTreasureChest && TreasureChest.Active ? TreasureChest.Active.Data.monsterSpawnMinimumDistance : spawnSettings ? spawnSettings.minimumDistance : minimumSpawnDistance);
         public float SpawnMaximumDistance => Mathf.Max(SpawnMinimumDistance, requireTreasureChest && TreasureChest.Active ? TreasureChest.Active.Data.monsterSpawnMaximumDistance : spawnSettings ? spawnSettings.maximumDistance : maximumSpawnDistance);
@@ -321,6 +325,8 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
             lastKnownSpawnDay=SpawnDayNumber;
             BuildDailySchedule();
             started = true;
+            InitializeStage();
+            InitializeQuestEncounter();
             StartWorldRestore();
 
         }
@@ -329,6 +335,7 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
             activeZones.Add(this);
             // Start runs once; refresh scheduling after re-enabling the zone.
             if (!started) return;
+            InitializeQuestEncounter();
             CheckMonsterUnlocks();
             if (dayNight != null && scheduledDay != dayNight.DayNumber) BuildDailySchedule();
         }
@@ -336,7 +343,6 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
         {
             if (data == null) return;
             var rewards=MonsterLootSettings.RewardsFor(data);
-            var loot=MonsterLootSettings.DropsFor(data);
             float xp = Mathf.Max(0, rewards.experience) * Mathf.Max(0f, experienceMultiplier);
             float money = Mathf.Max(0, rewards.gold) * Mathf.Max(0f, goldMultiplier) * rewards.GoldMultiplier(monsterLevel);
             if (upgradeSystem != null)
@@ -354,6 +360,8 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
                 if (awarded > 0f && moneyPopupPrefab != null && moneyPopupUiData != null)
                     Instantiate(moneyPopupPrefab).Initialize(awarded, origin, moneyPopupUiData);
             }
+            if (!inventory || !inventory.isActiveAndEnabled) return;
+            var loot = MonsterLootSettings.DropsFor(data);
             if (loot.drops == null) return;
             foreach (var drop in loot.drops)
             {
@@ -369,6 +377,7 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
         private void Update()
         {
             if(restoringWorld)return;
+            if (!RunCheckpoint.IsRestoring) questNpcEncounter?.Tick();
             CheckMonsterUnlocks();
             if (alive.RemoveAll(RemoveInactiveMonster) > 0) ForecastChanged?.Invoke();
             if (DebugSpawningPaused) return;
@@ -377,9 +386,10 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
             if (scheduledDay != dayNight.DayNumber) BuildDailySchedule();
             if(!player || player.Health<=0 || RuneStation.PlayerUsesRuneTime)return;
             spawnElapsedSeconds+=Time.deltaTime;
+            TickGodEncounter();
+            if (PlayerHuntMode) TickOvertime(Time.deltaTime);
             if(spawnKills==0){TickTimedSpawns(Time.deltaTime);return;}
             TickAlune(Time.deltaTime);
-            TickGodEncounter();
             AnnounceDailyEvent();
             if (requireTreasureChest && (TreasureChest.Active == null || !TreasureChest.Active.IsAlive)) return;
             TickNightThieves();
@@ -397,16 +407,16 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
             lastKnownPlayerLevel=level;lastKnownSpawnDay=day;
             if(day<previousDay||level<previousLevel){announcedSpecies.Clear();announcedBosses.Clear();return;}
             if(!showUnlockNotifications||unlockNotifier==null)return;
-            foreach(var entry in monsters){
+            foreach(var entry in RegularEntries){
                 if(entry==null||!entry.prefab||entry.chance<=0)continue;
                 string key=string.IsNullOrWhiteSpace(entry.displayName)?entry.prefab.name:entry.displayName;
                 string name=MiningLocalization.Text(key,key);int required=entry.RequiredSpawnDay;
-                if(previousDay<required&&day>=required&&announcedSpecies.Add(entry.prefab))
+                if(!UsesWorldSchedule&&previousDay<required&&day>=required&&announcedSpecies.Add(entry.prefab))
                     unlockNotifier.ShowToast($"New monster unlocked: {name} (Day {required})");
                 var boss=entry.prefab.RewardData?entry.prefab.RewardData.boss:null;
-                if(boss==null||!boss.enabled||boss.chancePercent<=0||day<required)continue;
+                if(boss==null||!boss.enabled||boss.chancePercent<=0||!CanSpawnRegular(entry))continue;
                 int bossRequired=Mathf.Max(1,boss.minimumPlayerLevel);
-                if((previousLevel<bossRequired&&level>=bossRequired||previousDay<required&&day>=required&&level>=bossRequired)&&announcedBosses.Add(entry.prefab))
+                if((previousLevel<bossRequired&&level>=bossRequired||!UsesWorldSchedule&&previousDay<required&&day>=required&&level>=bossRequired)&&announcedBosses.Add(entry.prefab))
                     unlockNotifier.ShowToast($"Boss unlocked: {name} (Lv. {bossRequired})");
             }
         }
@@ -454,9 +464,22 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
                 SpawnDayNumber >= entry.RequiredSpawnDay);
         }
 
+        private bool CanSpawnRegular(MonsterSpawnEntry entry)
+        {
+            if (!UsesWorldSchedule) return CanSpawnSpecies(entry);
+            return entry?.prefab && spawnElapsedSeconds >= Mathf.Max(0f, entry.firstSpawnSecond);
+        }
+
+        private bool HasEligibleEventBoss()
+        {
+            foreach (var entry in RegularEntries)
+                if (CanSpawnEventBoss(entry)) return true;
+            return false;
+        }
+
         private bool CanSpawnEventBoss(MonsterSpawnEntry entry)
         {
-            if (!CanSpawnSpecies(entry) || entry.chance <= 0f) return false;
+            if (!CanSpawnRegular(entry) || entry.chance <= 0f) return false;
             var boss = entry.prefab.RewardData != null ? entry.prefab.RewardData.boss : null;
             var tuning = MiningGameplayTuning.Current;
             return boss != null && boss.CanSpawn(playerStats != null ? playerStats.Level : 1,
@@ -466,12 +489,12 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
         private MonsterSpawnEntry RollMonsterEntry(bool bossOnly = false)
         {
             float total = 0f;
-            foreach (MonsterSpawnEntry entry in monsters)
-                if (CanSpawnSpecies(entry) && (!bossOnly || CanSpawnEventBoss(entry))) total += Mathf.Max(0f, entry.chance);
+            foreach (MonsterSpawnEntry entry in RegularEntries)
+                if (CanSpawnRegular(entry) && (!bossOnly || CanSpawnEventBoss(entry))) total += Mathf.Max(0f, entry.chance);
             if (total <= 0f) return null;
             float roll = UnityEngine.Random.value * total;
-            foreach (MonsterSpawnEntry entry in monsters)
-                if (CanSpawnSpecies(entry) && (!bossOnly || CanSpawnEventBoss(entry)) && entry.chance > 0f && (roll -= entry.chance) <= 0f)
+            foreach (MonsterSpawnEntry entry in RegularEntries)
+                if (CanSpawnRegular(entry) && (!bossOnly || CanSpawnEventBoss(entry)) && entry.chance > 0f && (roll -= entry.chance) <= 0f)
                     return entry;
             return null;
         }
@@ -483,7 +506,7 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
             if(alune&&alune.IsActive&&!forcedDailyEvent.HasValue){CurrentDailyEvent=DailyEncounterEvent.Alune;return;}
             dailyEvents??=additionalRoster!=null?additionalRoster.DailyEvents:null;
             dailyEvents??=Resources.Load<DailyEncounterEventData>("DailyEncounterEvents");
-            bool bossEligible=monsters.Exists(CanSpawnEventBoss);
+            bool bossEligible=HasEligibleEventBoss();
             CurrentDailyEvent=dailyEvents?dailyEvents.Roll(UnityEngine.Random.value,bossEligible):DailyEncounterEvent.Normal;
             if(forcedDailyEvent.HasValue)CurrentDailyEvent=forcedDailyEvent.Value;
             forcedDailyEvent=null;
@@ -510,7 +533,7 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
         public bool DebugStartDailyEvent(DailyEncounterEvent selected)
         {
             if (!Application.isPlaying || !started || dayNight == null || !isActiveAndEnabled) return false;
-            if (selected == DailyEncounterEvent.BossInvasion && !monsters.Exists(CanSpawnEventBoss)) return false;
+            if (selected == DailyEncounterEvent.BossInvasion && !HasEligibleEventBoss()) return false;
             // Explicit preview replaces future slots, not living monsters or saved progress.
             forcedDailyEvent = selected;
             BuildDailySchedule();
@@ -537,6 +560,7 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
         private void OnDisable()
         {
             activeZones.Remove(this);
+            questNpcEncounter?.Stop();
             if(SurvivorCrowd.Current)SurvivorCrowd.Current.RemoveZone(this);
             // The spawned monsters are owned by this spawner. Destroy without combat
             // rewards so no invisible Ground enemies survive the world switch.
@@ -551,17 +575,17 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
             var entry = monsters.Find(m => m != null && m.prefab == prefab);
             return entry != null && SpawnOne(entry, true);
         }
-        private bool SpawnOne(MonsterSpawnEntry entry, bool forceBoss = false, bool invasion = false)
+        private bool SpawnOne(MonsterSpawnEntry entry, bool forceBoss = false, bool invasion = false, bool overtime = false, bool regular = false)
         {
             if (DebugSpawningPaused) return false;
             alive.RemoveAll(RemoveInactiveMonster);
-            if (LivingCountOnField() >= LivingMonsterLimit || !CanSpawnSpecies(entry)) return false;
+            if (LivingCountOnField() >= LivingMonsterLimit || (!overtime && !(regular ? CanSpawnRegular(entry) : CanSpawnSpecies(entry)))) return false;
             MushroomMonster prefab = entry.prefab;
             var bossSettings = prefab.RewardData != null ? prefab.RewardData.boss : null;
             var tuning = MiningGameplayTuning.Current;
             bool ignoreLevel = tuning != null && tuning.IgnoreBossLevel;
             bool force = forceBoss || (tuning != null && tuning.ForceBossSpawns);
-            bool boss = bossSettings != null && (force
+            bool boss = !overtime && bossSettings != null && (force
                 ? bossSettings.CanSpawn(playerStats != null ? playerStats.Level : 1, ignoreLevel)
                 : bossSettings.Roll(playerStats != null ? playerStats.Level : 1, UnityEngine.Random.value, ignoreLevel));
             if (forceBoss && !boss) return false;
@@ -570,12 +594,13 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
             bossScale *= extraScale;
             for (int attempt = 0; attempt < 24; attempt++)
             {
-                if (!TryGetSpawnCandidate(out Vector3 position)) return false;
+                Vector3 position;
+                if (!(overtime ? TryGetOvertimeCandidate(out position) : TryGetSpawnCandidate(out position))) return false;
                 if (!TryFindGround(position, out RaycastHit ground)) continue;
-                if (!IsValidSpawnDistance(ground.point)) continue;
+                if (overtime ? !IsOffscreen(ground.point) : !IsValidSpawnDistance(ground.point)) continue;
                 if (player != null && (player.transform.position - ground.point).sqrMagnitude <
                     PlayerClearance * PlayerClearance) continue;
-                if(!boss&&!invasion&&PlayerHuntMode&&SurvivorCrowd.Current&&SurvivorCrowd.Current.CanHandle(prefab))
+                if(!overtime&&!boss&&!invasion&&PlayerHuntMode&&SurvivorCrowd.Current&&SurvivorCrowd.Current.CanHandle(prefab))
                 {
                     if(!SurvivorCrowd.Current.TrySpawn(this,entry,ground.point))continue;
                     periodSpawns++;
@@ -599,6 +624,12 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
                 var instance = Instantiate(prefab, ground.point,
                     Quaternion.Euler(0, UnityEngine.Random.Range(0f, 360f), 0), transform);
                 instance.Initialize(this, player, boss);
+                if (overtime)
+                {
+                    float minutes = Mathf.Max(0, (spawnElapsedSeconds - spawnSettings.stageSeconds) / 60f);
+                    instance.ApplyEncounterModifiers(1, 1 + minutes * spawnSettings.overtimeDamagePercentPerMinute * .01f,
+                        1 + minutes * spawnSettings.overtimeHealthPercentPerMinute * .01f);
+                }
                 if (invasion && dailyEvents != null)
                     instance.ApplyEncounterModifiers(extraScale, 1f + Mathf.Max(0, dailyEvents.bossExtraDamagePercent) * 0.01f,
                         1f + Mathf.Max(0, dailyEvents.bossExtraHealthPercent) * .01f);
@@ -670,9 +701,10 @@ public void ResetEncounter()
         {
             if(alune)alune.Clear();
             if(SurvivorCrowd.Current)SurvivorCrowd.Current.RemoveZone(this);
-            spawnElapsedSeconds=0;spawnCredit=0;nextTimedRetry=0;spawnKills=0;initialMonsterSpawned=false;
+            spawnElapsedSeconds=0;spawnCredit=0;overtimeCredit=0;nextTimedRetry=0;spawnKills=0;initialMonsterSpawned=false;
             lastKnownSpawnDay=SpawnDayNumber;
             ResetGodEncounter();
+            questNpcEncounter?.Reset();
             // Reset can return to the same day: day-number comparison alone misses it.
             foreach (var monster in alive)
                 if (monster != null)

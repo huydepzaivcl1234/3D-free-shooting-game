@@ -22,6 +22,10 @@ namespace Survivor.CrowdPrototype
   public int Triangles {get;private set;}
   public double SimulationMs {get;private set;}
   public bool benchmark;
+  public bool compareIndirectRendering;
+  public float benchmarkWarmupSeconds=4,benchmarkSampleSeconds=12;
+  private CrowdIndirectRenderer indirect;
+  private bool useIndirect;
   public string outputDirectory="";
   public int[] benchmarkCounts={1000,5000,10000};
   NativeArray<float3> positions,next;
@@ -51,10 +55,11 @@ namespace Survivor.CrowdPrototype
    ResetCrowd(benchmark?benchmarkCounts[0]:data.count);
   }
   public void ResetCrowd(int count){
-   Dispose();count=Mathf.Clamp(count,1,50000);positions=new NativeArray<float3>(count,Allocator.Persistent);next=new NativeArray<float3>(count,Allocator.Persistent);health=new NativeArray<float>(count,Allocator.Persistent);cells=new NativeParallelMultiHashMap<int,int>(count,Allocator.Persistent);
+   Dispose();count=Mathf.Clamp(count,1,100000);positions=new NativeArray<float3>(count,Allocator.Persistent);next=new NativeArray<float3>(count,Allocator.Persistent);health=new NativeArray<float>(count,Allocator.Persistent);cells=new NativeParallelMultiHashMap<int,int>(count,Allocator.Persistent);
    int side=Mathf.CeilToInt(Mathf.Sqrt(count));float spacing=math.min(1.2f,data.mapHalfSize*1.8f/side);
    for(int i=0;i<count;i++){positions[i]=new float3((i%side-(side-1)*.5f)*spacing,0,(i/side-(side-1)*.5f)*spacing);health[i]=30;}
    for(int l=0;l<4;l++){triangleCounts[l]=(int)data.meshes[l].GetIndexCount(0)/3;matrices[l]=new Matrix4x4[count];animation[l]=new Vector4[count];}
+   if(useIndirect)indirect=CrowdIndirectRenderer.Create(data,count);
    Alive=count;elapsed=0;timings.Clear();simTimings.Clear();sampleDrawn=sampleTriangles=0;
   }
   void Update(){
@@ -74,35 +79,60 @@ namespace Survivor.CrowdPrototype
    view.transform.position=target.position+Quaternion.Euler(pitch,yaw,0)*new Vector3(0,0,-distance);view.transform.LookAt(target.position);
    GeometryUtility.CalculateFrustumPlanes(view,planes);Array.Clear(counts,0,4);Drawn=Triangles=0;
    var t=target.position;
+   if (indirect != null) DrawIndirect(t);
+   else {
    for(int i=0;i<positions.Length;i++){
     if(health[i]<=0)continue;Vector3 p=positions[i];if(!GeometryUtility.TestPlanesAABB(planes,new Bounds(p+Vector3.up,Vector3.one*3)))continue;
     float d=Vector3.Distance(p,t);float cameraDistance=Vector3.Distance(p,view.transform.position);int lod=cameraDistance<data.lodDistances[0]?0:cameraDistance<data.lodDistances[1]?1:cameraDistance<data.lodDistances[2]?2:3;
     int slot=counts[lod]++;Vector3 direction=t-p;direction.y=0;var rotation=direction.sqrMagnitude>.001f?Quaternion.LookRotation(direction):Quaternion.identity;
     matrices[lod][slot]=Matrix4x4.TRS(p,rotation,Vector3.one);
-    int clip=d<1.8f?2:1;float phase=(i*.61803398875f)%1;
+    int clip=d<1.8f?2:1;float phase=(i%8)/8f;
     animation[lod][slot]=new Vector4(clip*data.framesPerClip,data.framesPerClip,phase,1/data.clipLengths[clip]);Drawn++;Triangles+=triangleCounts[lod];
    }
    for(int l=0;l<4;l++)for(int offset=0;offset<counts[l];offset+=1023){int n=Math.Min(1023,counts[l]-offset);Array.Copy(matrices[l],offset,batch,0,n);Array.Copy(animation[l],offset,animBatch,0,n);properties.SetVectorArray("_AnimData",animBatch);var rp=new RenderParams(data.material){camera=view,matProps=properties,shadowCastingMode=ShadowCastingMode.Off,receiveShadows=false,worldBounds=new Bounds(Vector3.zero,Vector3.one*400)};Graphics.RenderMeshInstanced(rp,data.meshes[l],0,batch,n);}
+   }
    if(benchmark)Measure();
-   hudTimer-=Time.unscaledDeltaTime;if(hudTimer<=0){hudTimer=.25f;hud=$"GPU CROWD PROTOTYPE | {Alive:N0} NPCs | {Drawn:N0} drawn | {Triangles:N0} triangles\nAll {positions.Length:N0} simulated every frame | Jobs {SimulationMs:F2} ms | {1/Time.unscaledDeltaTime:F0} FPS\nWASD target  |  RMB orbit  |  Wheel zoom  |  Space damage/death trial";}
+   hudTimer-=Time.unscaledDeltaTime;if(hudTimer<=0){hudTimer=.25f;string draws=indirect!=null?"GPU culling / indirect draws":$"{Drawn:N0} drawn | {Triangles:N0} triangles";hud=$"GPU CROWD PROTOTYPE | {Alive:N0} NPCs | {draws}\nAll {positions.Length:N0} simulated every frame | Jobs {SimulationMs:F2} ms | {1/Time.unscaledDeltaTime:F0} FPS\nWASD target  |  RMB orbit  |  Wheel zoom  |  Space damage/death trial";}
   }
   void Measure(){
-   elapsed+=Time.unscaledDeltaTime;if(elapsed<4)return;
+   elapsed+=Time.unscaledDeltaTime;if(elapsed<benchmarkWarmupSeconds)return;
    timings.Add(Time.unscaledDeltaTime*1000);simTimings.Add((float)SimulationMs);sampleDrawn+=Drawn;sampleTriangles+=Triangles;
-   if(elapsed<16)return;timings.Sort();simTimings.Sort();
-   var result=new Result{npcCount=positions.Length,samples=timings.Count,medianMs=timings[timings.Count/2],p95Ms=timings[(int)(timings.Count*.95f)],meanMs=Mean(timings),simulationMedianMs=simTimings[simTimings.Count/2],drawnMean=(float)sampleDrawn/timings.Count,trianglesMean=(float)sampleTriangles/timings.Count,width=Screen.width,height=Screen.height,device=SystemInfo.graphicsDeviceName,cpu=SystemInfo.processorType,unity=Application.unityVersion,editor=Application.isEditor,allSimulated=true};
+   if(elapsed<benchmarkWarmupSeconds+benchmarkSampleSeconds)return;timings.Sort();simTimings.Sort();
+   var result=new Result{npcCount=positions.Length,samples=timings.Count,medianMs=timings[timings.Count/2],p95Ms=timings[(int)(timings.Count*.95f)],meanMs=Mean(timings),simulationMedianMs=simTimings[simTimings.Count/2],drawnMean=indirect!=null?-1:(float)sampleDrawn/timings.Count,trianglesMean=indirect!=null?-1:(float)sampleTriangles/timings.Count,width=Screen.width,height=Screen.height,device=SystemInfo.graphicsDeviceName,cpu=SystemInfo.processorType,unity=Application.unityVersion,editor=Application.isEditor,allSimulated=true,renderPath=indirect!=null?"GPUIndirect":useIndirect?"Fallback":"CPUInstanced"};
    result.fps=1000/result.medianMs;
-   if(!string.IsNullOrEmpty(outputDirectory)){Directory.CreateDirectory(outputDirectory);File.WriteAllText(Path.Combine(outputDirectory,"Crowd"+positions.Length+"-"+(Application.isEditor?"Editor":"Player")+".json"),JsonUtility.ToJson(result,true));ScreenCapture.CaptureScreenshot(Path.Combine(outputDirectory,"Crowd"+positions.Length+"-"+(Application.isEditor?"Editor":"Player")+".png"));}
-   UnityEngine.Debug.Log(JsonUtility.ToJson(result));stage++;
+   if(!string.IsNullOrEmpty(outputDirectory)){Directory.CreateDirectory(outputDirectory);File.WriteAllText(Path.Combine(outputDirectory,"Crowd"+positions.Length+"-"+result.renderPath+"-"+(Application.isEditor?"Editor":"Player")+".json"),JsonUtility.ToJson(result,true));ScreenCapture.CaptureScreenshot(Path.Combine(outputDirectory,"Crowd"+positions.Length+"-"+result.renderPath+"-"+(Application.isEditor?"Editor":"Player")+".png"));}
+   UnityEngine.Debug.Log(JsonUtility.ToJson(result));
+   if(compareIndirectRendering&&!useIndirect)useIndirect=true;
+   else {useIndirect=false;stage++;}
    // Defer population changes until after screenshot's end-of-frame readback.
    if(stage<benchmarkCounts.Length)StartCoroutine(NextStage());else benchmark=false;
   }
   System.Collections.IEnumerator NextStage(){benchmark=false;yield return new WaitForEndOfFrame();yield return null;ResetCrowd(benchmarkCounts[stage]);benchmark=true;}
   static float Mean(List<float> v){double sum=0;foreach(var x in v)sum+=x;return(float)(sum/v.Count);}
-  [Serializable] public class Result{public int npcCount,samples,width,height;public float medianMs,p95Ms,meanMs,fps,simulationMedianMs,drawnMean,trianglesMean;public string device,cpu,unity;public bool editor,allSimulated;}
+  [Serializable] public class Result{public int npcCount,samples,width,height;public float medianMs,p95Ms,meanMs,fps,simulationMedianMs,drawnMean,trianglesMean;public string device,cpu,unity,renderPath;public bool editor,allSimulated;}
   void OnGUI(){GUI.Box(new Rect(12,12,880,82),hud);}
+  private void DrawIndirect(Vector3 goal)
+  {
+   int count=0;
+   for(int i=0;i<positions.Length;i++)
+   {
+    if(health[i]<=0)continue;
+    Vector3 point=positions[i],direction=goal-point;
+    int clip=direction.sqrMagnitude<1.8f*1.8f?2:1;
+    direction.y=0;
+    Quaternion rotation=direction.sqrMagnitude>.001f?Quaternion.LookRotation(direction):Quaternion.identity;
+    indirect.Input[count++]=new CrowdIndirectRenderer.Instance
+    {
+     transform=Matrix4x4.TRS(point,rotation,Vector3.one),
+     animation=new Vector4(clip*data.framesPerClip,data.framesPerClip,(i%8)/8f,1/data.clipLengths[clip]),
+     tint=Vector4.one,
+     sphere=new Vector4(point.x,point.y,point.z,data.meshes[0].bounds.extents.magnitude)
+    };
+   }
+   indirect.Draw(count,view,new Bounds(Vector3.zero,Vector3.one*400),0,false);
+  }
   void OnDestroy(){Dispose();}
-  void Dispose(){if(positions.IsCreated)positions.Dispose();if(next.IsCreated)next.Dispose();if(health.IsCreated)health.Dispose();if(cells.IsCreated)cells.Dispose();}
+  void Dispose(){indirect?.Dispose();indirect=null;if(positions.IsCreated)positions.Dispose();if(next.IsCreated)next.Dispose();if(health.IsCreated)health.Dispose();if(cells.IsCreated)cells.Dispose();}
   [BurstCompile] struct HashJob:IJobParallelFor{
    [ReadOnly]public NativeArray<float3> positions;[ReadOnly]public NativeArray<float> health;public NativeParallelMultiHashMap<int,int>.ParallelWriter cells;
    public void Execute(int i){if(health[i]>0){int2 c=(int2)math.floor(positions[i].xz/1.2f);cells.Add(c.x*73856093^c.y*19349663,i);}}

@@ -16,7 +16,8 @@ namespace MiningSimulator.Ores
             {
                 musicSource.playOnAwake = false;
                 musicSource.loop = audioData.LoopMusic;
-                musicSource.volume = GetMusicVolume();
+                musicSource.volume = upgradeThemeActive && audioData.UpgradeMusic != null &&
+                    musicSource.clip == audioData.UpgradeMusic ? GetUpgradeMusicVolume() : GetMusicVolume();
                 musicSource.spatialBlend = 0f;
                 musicSource.mute = musicMuted;
                 musicSource.outputAudioMixerGroup = audioData.MusicMixerGroup;
@@ -74,11 +75,6 @@ namespace MiningSimulator.Ores
             if (audioData != null && audioData.MuteAudioOnLostFocus)
             {
                 AudioListener.pause = upgradeThemeActive || !hasFocus;
-            }
-
-            if (hasFocus)
-            {
-                nextAllowedMiningSfxTime = 0f;
             }
         }
 
@@ -140,7 +136,7 @@ namespace MiningSimulator.Ores
             return source;
         }
 
-        private void PreloadAllAudioClips()
+        private void PreloadConfiguredClips()
         {
             if (audioData == null)
             {
@@ -162,8 +158,6 @@ namespace MiningSimulator.Ores
                 EnsureClipLoaded(audioData.GetNightAmbienceAt(index));
             }
             EnsureClipLoaded(audioData.SunriseRoosterSfx);
-            EnsureClipLoaded(audioData.OreHitSfx);
-            EnsureClipLoaded(audioData.OreBreakSfx);
             EnsureClipLoaded(audioData.ButtonClickSfx);
             EnsureClipLoaded(audioData.UpgradePurchasedSfx);
             EnsureClipLoaded(audioData.LevelUpSfx);

@@ -49,6 +49,8 @@ namespace MiningSimulator.Ores
     /// <summary>Common stats/rewards only. Author a concrete species GameData from the Monsters menu.</summary>
     public class MonsterRewardData : ScriptableObject
     {
+        public enum MonsterTier { Unassigned, Tier1, Tier2, Tier3 }
+        public MonsterTier tier;
         [Header("Day required to unlock this species")]
         [HideInInspector,Min(1)] public int minimumPlayerLevelToSpawn=1; // Retained for old assets; migrated to day unlocks.
         [Min(1),Tooltip("First world day on which this species can spawn. Independent of player level and monster combat level.")] public int minimumSpawnDay=1;

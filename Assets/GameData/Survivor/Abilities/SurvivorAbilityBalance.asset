@@ -160,9 +160,9 @@ MonoBehaviour:
       orbitRadius: 1.5
       orbitHeight: 1.2
       cleaveDegrees: 240
-      approachSeconds: 0.15
-      swingSeconds: 0.35
-      returnSeconds: 0.18
+      approachSeconds: 0.23
+      swingSeconds: 0.4
+      returnSeconds: 0.28
       slashColor: {r: 0.4, g: 0.75, b: 1, a: 0.9}
     twinMagic:
       title: Twin Magic
@@ -273,3 +273,39 @@ MonoBehaviour:
       rotationDegreesPerSecond: 36
       color: {r: 0.65, g: 0.4, b: 1, a: 1}
       damageType: 1
+  legendary:
+    giantBomb:
+      title: Giant Bomb
+      requiredHits: 150
+      damage:
+        baseValue: 300
+        perLevel: 15
+      enemyMaxHealthPercent: 25
+      damageType: 2
+      cooldown: 3
+      radius: 30
+      maxThrowDistance: 20
+      modelSize: 4
+      launchHeight: 1
+      arcHeight: 7
+      riseSeconds: 0.45
+      fallSeconds: 1.65
+      tumbleDegreesPerSecond: 180
+      groundLayers:
+        serializedVersion: 2
+        m_Bits: 15368
+      model: {fileID: 5304733320563332857, guid: 492087c233937534493dc03a7ad0c68c, type: 3}
+      smokePrefab: {fileID: 5034656251238326012, guid: 9de2fa19f0390d44491264d9cab8cec5, type: 3}
+      smokeScale: 2.5
+      effectSeconds: 3
+      launchSound: {fileID: 8300000, guid: d61edde471a77be45bf0c016ac2dddfb, type: 3}
+      explosionSound: {fileID: 8300000, guid: 58239e06f6796e24d8d83d962744a012, type: 3}
+      launchVolume: 0.7
+      explosionVolume: 1
+      shakeDistance: 0.12
+      shakeSeconds: 0.28
+  regenerationVisual:
+    prefab: {fileID: 7986504087968017091, guid: 12a56ee4630040c4eb17ae9707ed4cef, type: 3}
+    scale: 0.45
+    seconds: 0.9
+    footOffset: 0.03

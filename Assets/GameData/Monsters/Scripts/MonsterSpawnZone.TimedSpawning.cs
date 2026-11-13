@@ -22,7 +22,7 @@ namespace MiningSimulator.Ores
             if(LivingCountOnField()>=LivingMonsterLimit){spawnCredit=0;nextTimedRetry=Time.time+.25f;return;}
             bool invasion=spawnKills>0&&CurrentDailyEvent==DailyEncounterEvent.BossInvasion;
             var entry=RollMonsterEntry(invasion);
-            if(entry==null||!SpawnOne(entry,invasion,invasion)){
+            if(entry==null||!SpawnOne(entry,invasion,invasion,regular:true)){
                 spawnCredit=0;nextTimedRetry=Time.time+.25f;return;
             }
             initialMonsterSpawned=true;spawnCredit=0;

@@ -15,7 +15,7 @@ public static class MonsterSpeciesInspector
     private static readonly Dictionary<string,bool> groups=new();
     public static void Draw(SerializedObject so)
     {
-        so.Update();if(((MonsterRewardData)so.targetObject).lootProfileOnly){MonsterLootInspector.DrawSpecies(so);so.ApplyModifiedProperties();return;}Fields(so,"minimumSpawnDay");EditorGUILayout.Space(5);var data=(MonsterRewardData)so.targetObject;
+        so.Update();if(((MonsterRewardData)so.targetObject).lootProfileOnly){MonsterLootInspector.DrawSpecies(so);so.ApplyModifiedProperties();return;}Fields(so,"tier","minimumSpawnDay");EditorGUILayout.Space(5);var data=(MonsterRewardData)so.targetObject;
         EditorGUILayout.LabelField(ObjectNames.NicifyVariableName(data.GetType().Name.Replace("Data","")),EditorStyles.boldLabel);
         EditorGUILayout.LabelField($"{data.combat.maxHealth:0.##} HP | {data.combat.damage:0.##} {data.attackDamageType} damage | Melee {data.combat.attackRange:0.##} m");
         if(GUILayout.Button("Preview attack ranges in Scene")){

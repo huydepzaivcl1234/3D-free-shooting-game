@@ -16,7 +16,75 @@ MonoBehaviour:
   killsPerSpeedIncrease: 10
   intervalReductionPerMilestone: 0.5
   minimumSpawnInterval: 1
-  maximumLivingMonsters: 1000
+  maximumLivingMonsters: 300
+  world1Monsters:
+  - prefab: {fileID: 2814797438900439487, guid: 3fc8239ff0fe7fd469ff0e115b0c552f, type: 3}
+    icon: {fileID: -5852666820177937942, guid: 3cccdd23f481474439ff7cbded4d9ef7, type: 2}
+    displayName: 
+    chance: 75
+    minimumPlayerLevel: 0
+    firstSpawnSecond: 0
+  - prefab: {fileID: 4709780073627244445, guid: d8e6a992228824e4f80c006bddd600e8, type: 3}
+    icon: {fileID: 21300000, guid: 499b0f3f14035a94db8224298aebfe95, type: 3}
+    displayName: 
+    chance: 35
+    minimumPlayerLevel: 0
+    firstSpawnSecond: 60
+  - prefab: {fileID: 2305570719447537217, guid: 839c3acd08f172c42bd2b3568a9ec554, type: 3}
+    icon: {fileID: 21300000, guid: 4bebccb0a69183b43ac6c40615742c48, type: 3}
+    displayName: 
+    chance: 25
+    minimumPlayerLevel: 0
+    firstSpawnSecond: 120
+  - prefab: {fileID: 8773178799201064012, guid: 21613d889b5e46b48ae8ac4978bcc20d, type: 3}
+    icon: {fileID: 21300000, guid: e7c9bb8566437f641980fecae1cf33e1, type: 3}
+    displayName: 
+    chance: 25
+    minimumPlayerLevel: 0
+    firstSpawnSecond: 180
+  world2Monsters:
+  - prefab: {fileID: 2814797438900439487, guid: 3fc8239ff0fe7fd469ff0e115b0c552f, type: 3}
+    icon: {fileID: -5852666820177937942, guid: 3cccdd23f481474439ff7cbded4d9ef7, type: 2}
+    displayName: 
+    chance: 75
+    minimumPlayerLevel: 0
+    firstSpawnSecond: 0
+  - prefab: {fileID: 2305570719447537217, guid: 839c3acd08f172c42bd2b3568a9ec554, type: 3}
+    icon: {fileID: 21300000, guid: 4bebccb0a69183b43ac6c40615742c48, type: 3}
+    displayName: 
+    chance: 25
+    minimumPlayerLevel: 0
+    firstSpawnSecond: 45
+  - prefab: {fileID: 6569428935759115125, guid: c00d46f0db867e34183fab59c9141426, type: 3}
+    icon: {fileID: 21300000, guid: cec1d048fc1ca8145bfcad6ff7441477, type: 3}
+    displayName: 
+    chance: 15
+    minimumPlayerLevel: 0
+    firstSpawnSecond: 90
+  - prefab: {fileID: 377808701713144573, guid: 18a56ad5656a76440a42c7b2c30681a7, type: 3}
+    icon: {fileID: 0}
+    displayName: Potion Monster
+    chance: 15
+    minimumPlayerLevel: 0
+    firstSpawnSecond: 180
+  - prefab: {fileID: 1662960491592018415, guid: 601ea56549670a64093ef5e13da424a5, type: 3}
+    icon: {fileID: 0}
+    displayName: Bread Monster
+    chance: 20
+    minimumPlayerLevel: 0
+    firstSpawnSecond: 240
+  world1BossShrineCount: 1
+  world2BossShrineCount: 1
+  stageSeconds: 600
+  overtimeEnemy: {fileID: 8773178799201064012, guid: 21613d889b5e46b48ae8ac4978bcc20d, type: 3}
+  overtimeBatchSize: 3
+  overtimeInterval: 3
+  overtimeMinimumInterval: 0.55
+  overtimeIntervalReductionPerMinute: 0.35
+  overtimeMinDistance: 18
+  overtimeMaxDistance: 35
+  overtimeHealthPercentPerMinute: 18
+  overtimeDamagePercentPerMinute: 12
   followPlayer: 1
   minimumDistance: 10
   maximumDistance: 15

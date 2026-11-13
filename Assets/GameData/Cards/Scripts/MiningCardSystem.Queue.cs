@@ -12,6 +12,48 @@ namespace MiningSimulator.Ores
             public float rarityMultiplier;
             public List<SurvivorUpgradeData.Offer> rolled;
         }
+        [System.Serializable]
+        public sealed class SavedQueuedUpgrade
+        {
+            public bool ability;
+            public float rarityMultiplier;
+            public List<SurvivorUpgradeData.Offer> rolled;
+        }
+
+        internal List<SavedQueuedUpgrade> CaptureRuntimeQueue()
+        {
+            var saved = new List<SavedQueuedUpgrade>(upgradeQueue.Count);
+            if (!data) return saved;
+            foreach (var entry in upgradeQueue)
+                saved.Add(new SavedQueuedUpgrade
+                {
+                    ability = entry.tier == data.abilityCard,
+                    rarityMultiplier = entry.rarityMultiplier,
+                    rolled = entry.rolled
+                });
+            return saved;
+        }
+
+        internal void RestoreRuntimeQueue(List<SavedQueuedUpgrade> saved)
+        {
+            if (saved == null || !data || data.tiers == null || data.tiers.Length == 0) return;
+            upgradeQueue.Clear();
+            foreach (var entry in saved)
+            {
+                if (entry == null) continue;
+                var tier = entry.ability ? data.abilityCard : data.tiers[0];
+                if (tier == null) continue;
+                upgradeQueue.Add(new QueuedUpgrade
+                {
+                    tier = tier,
+                    rarityMultiplier = float.IsFinite(entry.rarityMultiplier) && entry.rarityMultiplier > 0
+                        ? entry.rarityMultiplier : 1f,
+                    rolled = entry.rolled != null && entry.rolled.Count > 0 ? entry.rolled : null
+                });
+            }
+            RefreshQueueHud();
+        }
+
         private readonly List<QueuedUpgrade> upgradeQueue=new();
         private QueuedUpgrade currentUpgrade;
         private bool choiceOpen;
@@ -23,7 +65,13 @@ namespace MiningSimulator.Ores
         private int PendingCount(bool ability){int count=0;foreach(var q in upgradeQueue)if((q.tier==data.abilityCard)==ability)count++;return count;}
         public bool Collect(MiningCardData.Tier tier,float rarityMultiplier=1f)
         {
-            if((!CanCollect&&!choiceOpen)||!data||tier==null||data.tiers==null||data.tiers.Length==0||tier!=data.tiers[0]&&tier!=data.abilityCard)return false;
+            return (CanCollect || choiceOpen) && Enqueue(tier, rarityMultiplier);
+        }
+
+        private bool Enqueue(MiningCardData.Tier tier, float rarityMultiplier)
+        {
+            if (!data || tier == null || data.tiers == null || data.tiers.Length == 0 ||
+                (tier != data.tiers[0] && tier != data.abilityCard)) return false;
             if(data.survivorUpgrades&&!data.survivorUpgrades.HasEligible(player,tier==data.abilityCard))return false;
             upgradeQueue.Add(new QueuedUpgrade{tier=tier,rarityMultiplier=rarityMultiplier});RefreshQueueHud();return true;
         }

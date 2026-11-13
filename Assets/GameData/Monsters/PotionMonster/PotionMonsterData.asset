@@ -12,13 +12,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 374e40b1265087348a42ba798bfddbf1, type: 3}
   m_Name: PotionMonsterData
   m_EditorClassIdentifier: Assembly-CSharp::MiningSimulator.Ores.PotionMonsterData
+  tier: 3
   minimumPlayerLevelToSpawn: 1
   minimumSpawnDay: 25
   combat:
-    maxHealth: 60
+    maxHealth: 30
     regenAmount: 0
     regenInterval: 5
-    attackSpeed: 1
+    attackSpeed: 0.25
     attackState: Headbutt
     secondAttackState: 
     secondHitMoment: 0.52
@@ -153,11 +154,11 @@ MonoBehaviour:
   healingFlat: 10
   healingMaxHealthPercent: 10
   redFlatDamage: 5
-  redPlayerMaxHealthPercent: 5
+  redPlayerMaxHealthPercent: 2
   burnDuration: 5
-  abilityPower: 20
-  abilityPowerPerLevel: 2
-  yellowFlatDamage: 10
+  abilityPower: 5
+  abilityPowerPerLevel: 1
+  yellowFlatDamage: 5
   yellowAbilityPowerPercent: 15
   attackSpeedSlowPercent: 25
   slowDuration: 5

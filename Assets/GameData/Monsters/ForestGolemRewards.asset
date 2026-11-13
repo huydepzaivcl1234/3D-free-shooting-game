@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5a4fd69e9f540b34aafe798d63383c1a, type: 3}
   m_Name: ForestGolemRewards
   m_EditorClassIdentifier: Assembly-CSharp::MiningSimulator.Ores.ForestGolemData
+  tier: 2
   minimumPlayerLevelToSpawn: 12
   minimumSpawnDay: 25
   combat:

@@ -15,17 +15,23 @@ MonoBehaviour:
   prefab: {fileID: 662506849978405326, guid: fc0366bbbb555454c8013aefc970160f, type: 3}
   lootAndRewards: {fileID: 11400000, guid: b6e86d824c04f9f459af0b9f05fdc6f7, type: 2}
   everyDays: 20
-  minimumPlayerLevel: 30
-  initialChancePercent: 5
-  dailyChanceIncreasePercent: 5
+  minimumPlayerLevel: 0
+  shrinePrefab: {fileID: 0}
+  shrineMinDistance: 10
+  shrineMaxDistance: 17
+  shrineInteractionRange: 3
   healthIncreasePercent: 25
   damageIncreasePercent: 25
+  shrineScalingIntervalSeconds: 180
+  shrineScalingStep: 1.25
+  shrineFinalTierSeconds: 600
+  shrineFinalTierMultiplier: 2
   crowdControlResistancePercent: 50
-  health: 100000
+  health: 1000
   armor: 100
   magicResistance: 100
   height: 8
-  spawnDistance: 20
+  spawnDistance: 10
   walkSpeed: 4
   runSpeed: 9
   startRunningDistance: 30
@@ -33,12 +39,12 @@ MonoBehaviour:
   turnSpeed: 180
   punch:
     speed: 1.5
-    damage: 100
+    damage: 50
     hitTime: 0.43
     knockback: 3
   swipe:
     speed: 1
-    damage: 150
+    damage: 70
     hitTime: 0.5
     knockback: 2
   meleeRange: 6

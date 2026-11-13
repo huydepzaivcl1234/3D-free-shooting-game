@@ -97,7 +97,8 @@ namespace MiningSimulator.Ores
                    !mainMenuMusicActive && !shopThemeActive && dayNightSystem != null &&
                    (dayNightSystem.CurrentPeriod == MiningTimePeriod.Night) == isNight)
             {
-                while (ambienceSource.isPlaying)
+                // The card panel pauses the listener, which also makes isPlaying false.
+                while (AudioListener.pause || ambienceSource.isPlaying)
                 {
                     yield return null;
                 }
@@ -108,6 +109,11 @@ namespace MiningSimulator.Ores
                 if (pause > 0f)
                 {
                     yield return new WaitForSecondsRealtime(pause);
+                }
+
+                while (AudioListener.pause)
+                {
+                    yield return null;
                 }
 
                 if (mainMenuMusicActive || shopThemeActive || dayNightSystem == null ||

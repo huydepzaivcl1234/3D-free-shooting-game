@@ -5,6 +5,11 @@ namespace MiningSimulator.Ores
     [CreateAssetMenu(menuName="Survivor/Monsters/Bread Monster")]
     public sealed class BreadMonsterData : MonsterRewardData
     {
+        [Tooltip("Flat magic damage added per level above level 1, before the random stat roll.")]
+        [Min(0)] public float attackDamagePerLevel = .75f;
+        public float AttackDamageAtLevel(int level) =>
+            Mathf.Max(0, combat.damage) + Mathf.Max(0, level - 1) * attackDamagePerLevel;
+
         [Header("Thrown bread slice")]
         public BreadSliceProjectile sliceProjectile;
         [Min(.1f)] public float flightSeconds=1.25f;

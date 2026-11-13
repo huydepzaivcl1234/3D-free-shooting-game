@@ -25,12 +25,12 @@ namespace GameData.Player.Script
 {
     public sealed partial class SurvivorLootBox
     {
-        [Serializable] public sealed class SavedBox {public Vector3 position,landing;public Quaternion rotation;public bool falling;public float speed,ready;}
-        public SavedBox CaptureRuntime()=>new(){position=transform.position,rotation=transform.rotation,landing=LandingPoint,falling=IsFalling,speed=fallSpeed,ready=readyAt-Time.time};
-        public void RestoreRuntime(SavedBox s){transform.SetPositionAndRotation(s.position,s.rotation);LandingPoint=s.landing;IsFalling=s.falling;fallSpeed=s.speed;readyAt=Time.time+s.ready;}
+        [Serializable] public sealed class SavedBox {public Vector3 position,landing;public Quaternion rotation;public bool falling;public float ready;}
+        public SavedBox CaptureRuntime()=>new(){position=transform.position,rotation=transform.rotation,ready=readyAt-Time.time};
+        public void RestoreRuntime(SavedBox s){transform.SetPositionAndRotation(s.falling?s.landing:s.position,s.rotation);readyAt=Time.time+s.ready;}
     }
     public sealed partial class SurvivorDailyLoot
     {
-        public void SaveRuntime(){if(saveBlocked)return;for(int i=0;i<boxes.Count&&i<progress.boxes.Count;i++)if(boxes[i])progress.boxes[i].runtime=boxes[i].CaptureRuntime();Save();}
+        public void SaveRuntime(){if(saveBlocked||progress.day<0)return;for(int i=0;i<boxes.Count&&i<progress.boxes.Count;i++)if(boxes[i])progress.boxes[i].runtime=boxes[i].CaptureRuntime();Save();}
     }
 }

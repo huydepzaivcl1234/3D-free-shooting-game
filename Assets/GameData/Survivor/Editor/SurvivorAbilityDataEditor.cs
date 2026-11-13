@@ -14,7 +14,7 @@ public sealed class SurvivorAbilityDataEditor : Editor
         var root=new VisualElement();
         root.Add(new HelpBox("All abilities are configured here. Base Value is the level-1 amount. Each later upgrade adds Per Level once (0.25, 0.50, 0.75...). Growth is additive, up to level 99. English card text is generated from these values. Max-level abilities cannot be offered again. Rarity probabilities and item weights stay in SurvivorUpgradeData.",HelpBoxMessageType.Info));
         var descriptions=new List<(Label label,SurvivorUpgradeId id)>();
-        foreach(string groupName in new[]{"common","uncommon","rare","epic"}){
+        foreach(string groupName in new[]{"common","uncommon","rare","epic","legendary"}){
             var groupProperty=serializedObject.FindProperty(groupName);
             var groupValue=typeof(SurvivorAbilityData).GetField(groupName).GetValue(data);
             var fold=new Foldout{text=ObjectNames.NicifyVariableName(groupName),value=groupName=="common"};root.Add(fold);
@@ -26,6 +26,7 @@ public sealed class SurvivorAbilityDataEditor : Editor
                 var label=new Label(data.Description(id));label.style.whiteSpace=WhiteSpace.Normal;label.style.marginLeft=16;label.style.marginBottom=14;fold.Add(label);descriptions.Add((label,id));
             }
         }
+        root.Add(new PropertyField(serializedObject.FindProperty("regenerationVisual"), "Regeneration VFX"));
         root.TrackSerializedObjectValue(serializedObject,_=>{foreach(var entry in descriptions)entry.label.text=data.Description(entry.id);});
         return root;
     }

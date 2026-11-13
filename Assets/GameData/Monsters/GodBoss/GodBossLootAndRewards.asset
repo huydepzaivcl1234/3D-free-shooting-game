@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5ce228d6dde5489e959cc89554e9ce6d, type: 3}
   m_Name: GodBossLootAndRewards
   m_EditorClassIdentifier: Assembly-CSharp::MiningSimulator.Ores.MonsterRewardData
+  tier: 0
   minimumPlayerLevelToSpawn: 1
   minimumSpawnDay: 1
   combat:
@@ -62,6 +63,7 @@ MonoBehaviour:
     navigationObstacleLayers:
       serializedVersion: 2
       m_Bits: 4294967295
+    rangedOnly: 0
     projectile: {fileID: 0}
     fireState: Fire
     rangedRange: 8
@@ -117,7 +119,7 @@ MonoBehaviour:
   statGrowthPerLevel: 0.75
   goldGrowthPerLevel: 0
   randomStatMultiplier: {x: 0.9, y: 1.1}
-  experience: 0
+  experience: 1000
   gold: 0
   armor: 0
   magicResistance: 0
@@ -131,9 +133,9 @@ MonoBehaviour:
   lifeStealPercent: 0
   healingBonusPercent: 0
   lootProfileOnly: 1
-  cardDropPercent: 2
-  bossCardDropPercent: 5
-  abilityCardSharePercent: 1
+  cardDropPercent: 0
+  bossCardDropPercent: 0
+  abilityCardSharePercent: 100
   drops: []
   iconSize: 0.45
   launchUpSpeed: 4

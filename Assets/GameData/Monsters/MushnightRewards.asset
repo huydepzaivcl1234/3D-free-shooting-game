@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7e87185b852dc0948996ba374fb5f265, type: 3}
   m_Name: MushnightRewards
   m_EditorClassIdentifier: Assembly-CSharp::MiningSimulator.Ores.MushnightData
+  tier: 1
   minimumPlayerLevelToSpawn: 1
   minimumSpawnDay: 1
   combat:

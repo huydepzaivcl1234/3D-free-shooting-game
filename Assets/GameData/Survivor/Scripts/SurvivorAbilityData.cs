@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using MiningSimulator.Ores;
 using UnityEngine;
 
 namespace GameData.Player.Script
@@ -74,6 +75,38 @@ namespace GameData.Player.Script
             public MissingHealthDefense missingHealthArmor=new(){title="Last Stand"};
             public Cube chargedCube=new(){title="Arcane Cube"};
         }
+
+        [Serializable] public sealed class Bomb : Ability
+        {
+            [Min(1)] public int requiredHits = 100;
+            public Scaling damage = new(100, 10);
+            [Min(0)] public float enemyMaxHealthPercent = 25;
+            public CombatDamageType damageType = CombatDamageType.Magic;
+            [Min(0)] public float cooldown = 3;
+            [Min(.01f)] public float radius = 12, maxThrowDistance = 20;
+            [Min(.01f)] public float modelSize = 2.5f, launchHeight = 1, arcHeight = 7;
+            [Min(.01f)] public float riseSeconds = .45f, fallSeconds = 1.65f;
+            public float tumbleDegreesPerSecond = 180;
+            public LayerMask groundLayers = (1 << 3) | (1 << 10) | (1 << 11) | (1 << 12) | (1 << 13);
+            public GameObject model, smokePrefab;
+            [Min(.01f)] public float smokeScale = 2.5f, effectSeconds = 3;
+            public AudioClip launchSound, explosionSound;
+            [Range(0, 1)] public float launchVolume = .7f, explosionVolume = .85f;
+            [Min(0)] public float shakeDistance = .12f, shakeSeconds = .28f;
+        }
+
+        [Serializable] public sealed class Legendary
+        {
+            public Bomb giantBomb = new() { title = "Giant Bomb" };
+        }
+
+        [Serializable] public sealed class RegenerationVisual
+        {
+            public GameObject prefab;
+            [Min(.01f)] public float scale = .45f, seconds = .9f;
+            public float footOffset = .03f;
+        }
+
         [Serializable] public sealed class Common
         {
             public CardAttraction cardMagnet=new(){title="Card Magnet"};
@@ -124,6 +157,8 @@ namespace GameData.Player.Script
         public Uncommon uncommon=new();
         public Rare rare=new();
         public Epic epic=new();
+        public Legendary legendary=new();
+        public RegenerationVisual regenerationVisual=new();
         private static SurvivorAbilityData fallback;
         public static SurvivorAbilityData Fallback {get {if(!fallback){fallback=CreateInstance<SurvivorAbilityData>();fallback.hideFlags=HideFlags.HideAndDontSave;}return fallback;}}
         private static string N(float value)=>value.ToString("0.##",CultureInfo.InvariantCulture);
@@ -132,12 +167,17 @@ namespace GameData.Player.Script
             SurvivorUpgradeId.LifeSpring=>common.lifeSpring,SurvivorUpgradeId.PowerSurge=>common.powerSurge,SurvivorUpgradeId.Burn=>common.ignite,
             SurvivorUpgradeId.Shield=>uncommon.shield,SurvivorUpgradeId.Airborne=>uncommon.airborne,SurvivorUpgradeId.Aura=>uncommon.aura,
             SurvivorUpgradeId.Ricochet=>uncommon.ricochet,SurvivorUpgradeId.Invulnerability=>uncommon.invulnerability,SurvivorUpgradeId.Quickening=>uncommon.quickening,SurvivorUpgradeId.FlatPower=>uncommon.flatPower,
+            SurvivorUpgradeId.LegendaryBomb=>legendary.giantBomb,
             SurvivorUpgradeId.FlyingSword=>rare.flyingSword,SurvivorUpgradeId.TwinMagic=>rare.twinMagic,SurvivorUpgradeId.ReactiveArmor=>rare.reactiveArmor,SurvivorUpgradeId.Weaken=>rare.weaken,
             SurvivorUpgradeId.EmergencyHeal=>rare.emergencyHeal,SurvivorUpgradeId.Retaliate=>rare.retaliate,SurvivorUpgradeId.BossVitality=>rare.bossVitality,SurvivorUpgradeId.DoubleBasics=>rare.doubleChoice,
             SurvivorUpgradeId.OrbBarrage=>common.orbBarrage,SurvivorUpgradeId.TripleBasics=>epic.tripleChoice,SurvivorUpgradeId.Frostbite=>epic.frostbite,SurvivorUpgradeId.CardFortune=>epic.cardFortune,SurvivorUpgradeId.TrueBarrage=>epic.trueBarrage,SurvivorUpgradeId.TitanBlessing=>epic.titanBlessing,SurvivorUpgradeId.MissingHealthArmor=>epic.missingHealthArmor,SurvivorUpgradeId.ChargedCube=>epic.chargedCube,_=>null};
         public string Description(SurvivorUpgradeId id)
         {
             switch(id){
+            case SurvivorUpgradeId.LegendaryBomb:
+                var bomb = legendary.giantBomb;
+                var format = MiningLocalization.TextKey("SURVIVOR_GIANT_BOMB_DESC", "After {0} damage hits, lob a giant bomb. On landing it deals {1} + {2}% of each enemy's maximum health within {3} m. Each upgrade adds {4} damage. Cooldown: {5}s after impact.");
+                return string.Format(CultureInfo.InvariantCulture, format, bomb.requiredHits, N(bomb.damage.baseValue), N(bomb.enemyMaxHealthPercent), N(bomb.radius), N(bomb.damage.perLevel), N(bomb.cooldown));
             case SurvivorUpgradeId.CardMagnet:var magnet=common.cardMagnet;return $"Pull dropped cards within {magnet.radius} m.";
             case SurvivorUpgradeId.SplitShot:var c=common.chainShot;return $"On hit, bounce once to another nearby enemy. Physical damage: {N(c.baseDamagePercent)}% base damage + ({c.flatDamage}). Requires another enemy; no further bounces.";
             case SurvivorUpgradeId.FleetForce:var m=common.momentum;return $"For every {N(m.bonusSpeedPerStack)} bonus movement speed, gain ({m.damagePerStack}) attack damage. Only speed gained from upgrades, items and other bonuses counts.";

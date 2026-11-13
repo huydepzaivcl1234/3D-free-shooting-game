@@ -8,14 +8,29 @@ namespace MiningSimulator.Ores
         public GodBossController prefab;
         public MonsterRewardData lootAndRewards;
         [HideInInspector] public int everyDays = 50; // Legacy serialized field; encounters now use daily rolls.
-        [Header("Daily encounter after reaching the required player level")]
-        [Min(1)] public int minimumPlayerLevel=15;
-        [Range(0,100)] public float initialChancePercent=5,dailyChanceIncreasePercent=5;
-        [Header("Added strength per later appearance (not per day)")]
+        [Header("Summoning shrine")]
+        [HideInInspector] public int minimumPlayerLevel=15;
+        public GameObject shrinePrefab;
+        [Min(1)] public float shrineMinDistance = 10, shrineMaxDistance = 17;
+        [Min(.5f)] public float shrineInteractionRange = 3;
+        [HideInInspector]
         [Min(0)] public float healthIncreasePercent=25,damageIncreasePercent=25;
+        [Header("Strength and XP at the time of summoning")]
+        [Min(1)] public float shrineScalingIntervalSeconds = 180;
+        [Min(1)] public float shrineScalingStep = 1.25f;
+        [Min(1)] public float shrineFinalTierSeconds = 600;
+        [Min(1)] public float shrineFinalTierMultiplier = 2;
+
+        public float ShrineMultiplier(float elapsedSeconds)
+        {
+            if (elapsedSeconds >= Mathf.Max(1, shrineFinalTierSeconds))
+                return Mathf.Max(1, shrineFinalTierMultiplier);
+            int tier = Mathf.FloorToInt(Mathf.Max(0, elapsedSeconds) / Mathf.Max(1, shrineScalingIntervalSeconds));
+            return Mathf.Min(Mathf.Max(1, shrineFinalTierMultiplier), Mathf.Pow(Mathf.Max(1, shrineScalingStep), tier));
+        }
+
         [Header("Crowd-control resistance")]
         [Range(0,100),Tooltip("Reduces control duration. At 100%, immune to slow and airborne; does not reduce burn damage.")] public float crowdControlResistancePercent=50;
-        public float SpawnChancePercent(int day,int firstEligibleDay,int lastAppearanceDay=0)=>firstEligibleDay<1||day<firstEligibleDay?0:lastAppearanceDay>0?Mathf.Clamp(dailyChanceIncreasePercent*Mathf.Max(0,day-lastAppearanceDay),0,100):Mathf.Clamp(initialChancePercent+dailyChanceIncreasePercent*(day-firstEligibleDay),0,100);
         public float HealthMultiplier(int appearance)=>1+Mathf.Max(0,appearance-1)*healthIncreasePercent*.01f;
         public float DamageMultiplier(int appearance)=>1+Mathf.Max(0,appearance-1)*damageIncreasePercent*.01f;
         [Min(1)] public float health = 5000;

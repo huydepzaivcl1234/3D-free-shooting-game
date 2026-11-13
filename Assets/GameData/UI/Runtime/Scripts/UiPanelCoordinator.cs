@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -253,6 +253,7 @@ namespace MiningSimulator.Ores
         {
             if (activeModal != panel) return;
             activeModal = null;
+            if (!isActiveAndEnabled) return;
             StopAllCoroutines();
             AnimateBasePanels(!mainMenuOpen);
             HideBackdrop();

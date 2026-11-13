@@ -14,7 +14,7 @@ public sealed class GodBossDataEditor : Editor
         if(MonsterSpeciesInspector.Group(serializedObject,"Melee — punch & swipe",true))Fields("meleeRange","attackHalfAngle","recovery","punch","swipe");
         if(MonsterSpeciesInspector.Group(serializedObject,"Jump & landing shockwave"))Fields("jumpRange","jumpCooldown","jumpWindup","jumpSpeed","jumpTravelSeconds","jumpHeight","jumpDamage","jumpKnockback","waveRadius","waveSpeed","waveThickness");
         if(MonsterSpeciesInspector.Group(serializedObject,"Roar, healing & summons"))Fields("roarCheckSeconds","roarCooldown","roarSpeed","roarChance","healMaxHealthFraction","summonHealthAtZeroBossHP","summonDamageAtZeroBossHP","summonBossVariants","maxLivingSummons","summonMinimumDistance","summonMaximumDistance","summonMinimumPlayerDistance","bleedMaxHealthPercentPerSecond","bleedDuration");
-        if(MonsterSpeciesInspector.Group(serializedObject,"Daily spawn & later appearances"))Fields("prefab","minimumPlayerLevel","initialChancePercent","dailyChanceIncreasePercent","healthIncreasePercent","damageIncreasePercent","spawnDistance");
+        if(MonsterSpeciesInspector.Group(serializedObject,"Summoning shrine & later appearances"))Fields("prefab","minimumPlayerLevel","shrinePrefab","shrineMinDistance","shrineMaxDistance","shrineInteractionRange","healthIncreasePercent","damageIncreasePercent","spawnDistance");
         if(MonsterSpeciesInspector.Group(serializedObject,"Animation clips"))Fields("idle","walk","run","punchClip","swipeClip","jump","roar","dying","crossfade","deathSpeed");
         if(serializedObject.ApplyModifiedProperties())SceneView.RepaintAll();
     }

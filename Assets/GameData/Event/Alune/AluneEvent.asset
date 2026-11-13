@@ -17,7 +17,7 @@ MonoBehaviour:
   scatterRadius: 10
   fallHeight: 60
   fallSeconds: 7
-  impactRadius: 2
+  impactRadius: 3
   meteorSize: 1
   meteorPrefab: {fileID: 3787747253323423064, guid: fca9b8ec1cdec334b8022c5c4d107f71, type: 3}
   impactPrefab: {fileID: 1758473627833946668, guid: 9b21333b068a5084ba09535839bee3c8, type: 3}

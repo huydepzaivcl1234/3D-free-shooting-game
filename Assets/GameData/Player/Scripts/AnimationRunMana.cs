@@ -43,6 +43,7 @@ namespace GameData.Player.Script
         private SurvivorCombatData CoreData => playerStats != null ? playerStats.CoreData : null;
 
         public float CurrentMana { get; private set; }
+        internal event System.Action<float> Spent;
         public float MaximumMana => Mathf.Max(1f, CoreData != null ? CoreData.maxStamina : maximumMana);
         public bool IsRunningAnimation { get; private set; }
         public bool IsDepleted => CurrentMana <= 0f;
@@ -148,7 +149,9 @@ namespace GameData.Player.Script
             if (running && !exhausted)
             {
                 secondsSinceRun = 0f;
+                float previous = CurrentMana;
                 CurrentMana = Mathf.Max(0f, CurrentMana - Mathf.Max(0f, cost) * deltaTime);
+                if (CurrentMana < previous) Spent?.Invoke(previous - CurrentMana);
                 if (CurrentMana <= 0f) exhausted = true;
                 return;
             }

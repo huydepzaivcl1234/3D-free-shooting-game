@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4be055377601f7543bb693cab43d450d, type: 3}
   m_Name: BreadMonsterData
   m_EditorClassIdentifier: Assembly-CSharp::MiningSimulator.Ores.BreadMonsterData
+  tier: 3
   minimumPlayerLevelToSpawn: 10
   minimumSpawnDay: 30
   combat:
@@ -32,7 +33,7 @@ MonoBehaviour:
     detectionRange: 18
     attackRange: 2
     attackArc: 140
-    damage: 10
+    damage: 1
     knockbackSpeed: 0
     knockbackLift: 0
     attackCooldown: 3.1
@@ -62,9 +63,10 @@ MonoBehaviour:
     navigationObstacleLayers:
       serializedVersion: 2
       m_Bits: 4294967295
+    rangedOnly: 0
     projectile: {fileID: 0}
     fireState: Throw
-    rangedRange: 20
+    rangedRange: 15
     releaseMoment: 0.46153846
     projectileSpeed: 8
     projectileTurnDegreesPerSecond: 540
@@ -114,7 +116,7 @@ MonoBehaviour:
   higherLevelChance: 0.35
   higherLevelIncreasePerDayPercent: 0.01
   maximumHigherLevelChancePercent: 50
-  statGrowthPerLevel: 0.75
+  statGrowthPerLevel: 0.25
   goldGrowthPerLevel: 0.75
   randomStatMultiplier: {x: 0.9, y: 1.1}
   experience: 1000
@@ -142,6 +144,7 @@ MonoBehaviour:
   attractionRadius: 30
   attractionSpeed: 2
   attractionAcceleration: 3
+  attackDamagePerLevel: 0.75
   sliceProjectile: {fileID: 1253903472542323183, guid: e5436d767c044cf4ab3d691396e4ec2a, type: 3}
   flightSeconds: 1.25
   arcHeight: 3
@@ -154,7 +157,7 @@ MonoBehaviour:
   healingMaxHealthPercent: 3
   healSelf: 1
   healingFlightSeconds: 0.65
-  sugarMaxHealthPercent: 2
+  sugarMaxHealthPercent: 0.5
   sugarDamagePerMonsterLevel: 1
-  sugarDuration: 5
+  sugarDuration: 2
   sugarTickSeconds: 1

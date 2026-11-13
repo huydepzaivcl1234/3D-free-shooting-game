@@ -10,70 +10,133 @@ namespace MiningSimulator.Ores
         private GodBossController godBoss;
         private float godRetry;
         private readonly List<MushroomMonster> godSummons = new();
-        private const string GodDefeatedDayKey = "World.GodBoss.DefeatedDay.v1";
-        private const string GodEligibleDayKey="World.GodBoss.EligibleDay.v2",GodRollDayKey="World.GodBoss.RollDay.v2",GodRollResultKey="World.GodBoss.RollResult.v2",GodAppearanceKey="World.GodBoss.Appearance.v2",GodAppearanceDayKey="World.GodBoss.AppearanceDay.v2";
-        private int godRolledDay=-1;
-        private bool godSelected;
-        public bool IsGodDay => godBossData&&godRolledDay==SpawnDayNumber&&godSelected;
-        public float GodSpawnChancePercent=>godBossData?godBossData.SpawnChancePercent(SpawnDayNumber,GameSave.GetInt(GodEligibleDayKey),GameSave.GetInt(GodAppearanceDayKey)):0;
-        private void PrepareGodRoll()
+        private const string GodAppearanceKey = "World.GodBoss.Appearance.v2";
+        [SerializeField, Min(-1), Tooltip("-1 uses this world's count from Monster Spawn Settings. 0 disables shrine placement on this map.")]
+        private int bossShrineCountOverride = -1;
+
+        [System.Serializable]
+        private sealed class GodShrineState
         {
-            if(!godBossData||!player||player.Health<=0||godRolledDay==SpawnDayNumber)return;
-            var stats=player.GetComponent<PlayerStats>();
-            if(!stats||stats.Level<godBossData.minimumPlayerLevel)return;
-            int day=SpawnDayNumber,first=GameSave.GetInt(GodEligibleDayKey);
-            if(first<1){first=day;GameSave.SetInt(GodEligibleDayKey,first);}
-            if(GameSave.GetInt(GodRollDayKey)!=day){
-                GameSave.SetInt(GodRollDayKey,day);
-                float chance=godBossData.SpawnChancePercent(day,first,GameSave.GetInt(GodAppearanceDayKey));
-                GameSave.SetInt(GodRollResultKey,chance>=100||Random.value*100<chance?1:0);
-                GameSave.Save();
-            }
-            godRolledDay=day;godSelected=GameSave.GetInt(GodRollResultKey)==1;
-            ForecastChanged?.Invoke();
+            public Vector3 point;
+            public bool used;
+            [System.NonSerialized] public GameObject instance;
         }
+
+        private readonly List<GodShrineState> godShrines = new();
         public GodBossController ActiveGodBoss => godBoss;
+        private int BossShrineCount => bossShrineCountOverride >= 0 ? bossShrineCountOverride :
+            spawnSettings ? spawnSettings.BossShrinesFor(spawnWorld) : 1;
+
+        private GodShrineState FindNearbyShrine()
+        {
+            if (!godBossData || !player || player.Health <= 0) return null;
+            GodShrineState nearest = null;
+            float best = godBossData.shrineInteractionRange * godBossData.shrineInteractionRange;
+            foreach (var shrine in godShrines)
+            {
+                if (shrine.used || !shrine.instance) continue;
+                float distance = (player.transform.position - shrine.point).sqrMagnitude;
+                if (distance > best) continue;
+                best = distance;
+                nearest = shrine;
+            }
+            return nearest;
+        }
+
         private void TickGodEncounter()
         {
-            if (DebugSpawningPaused) return;
-            PrepareGodRoll();
-            if (!IsGodDay && !godBoss) return;
-            if (godBoss || !IsGodDay) return;
-            if (Time.time < godRetry) return;
-            godRetry = Time.time + 2;
-            // One primary spawner owns the encounter if the scene contains multiple zones.
-            foreach (var other in FindObjectsByType<MonsterSpawnZone>(FindObjectsSortMode.InstanceID))
-                if (other.IsGodDay) { if (other != this) return; break; }
-            if (GameSave.GetInt(GodDefeatedDayKey) == SpawnDayNumber || !player || player.Health <= 0) return;
-            if (!godBossData.prefab) return;
+            if (!PlayerHuntMode || !godBossData || !godBossData.prefab || Time.deltaTime <= 0) return;
+            if (Time.time >= godRetry)
+            {
+                godRetry = Time.time + 1;
+                int count = BossShrineCount;
+                for (int i = 0; i < godShrines.Count && i < count; i++)
+                {
+                    var saved = godShrines[i];
+                    if (!saved.used && !saved.instance) CreateGodShrine(saved);
+                }
+                int attempts = 16;
+                while (godShrines.Count < count && attempts-- > 0)
+                {
+                    float distance = Random.Range(godBossData.shrineMinDistance, Mathf.Max(godBossData.shrineMinDistance, godBossData.shrineMaxDistance));
+                    var offset = Quaternion.Euler(0, Random.Range(0, 360f), 0) * Vector3.forward * distance;
+                    if (!TryFindGround(player.transform.position + offset, out var ground)) continue;
+                    if (Physics.CheckSphere(ground.point + Vector3.up, .55f, ~0, QueryTriggerInteraction.Ignore)) continue;
+                    if (godShrines.Exists(shrine => (shrine.point - ground.point).sqrMagnitude < 9f)) continue;
+                    var shrine = new GodShrineState { point = ground.point };
+                    godShrines.Add(shrine);
+                    CreateGodShrine(shrine);
+                }
+            }
+
+            if (!godBoss && !(uiCoordinator && uiCoordinator.BlocksGameplay) &&
+                UnityEngine.InputSystem.Keyboard.current?.eKey.wasPressedThisFrame == true)
+                TrySummonGod(FindNearbyShrine());
+        }
+
+        private void CreateGodShrine(GodShrineState shrine)
+        {
+            GameObject instance;
+            if (godBossData.shrinePrefab)
+            {
+                instance = Instantiate(godBossData.shrinePrefab, shrine.point, Quaternion.identity, transform);
+            }
+            else
+            {
+                instance = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+                instance.GetComponent<Collider>().enabled = false;
+                instance.transform.SetParent(transform, true);
+                instance.transform.position = shrine.point + Vector3.up * 1.35f;
+                instance.transform.localScale = new Vector3(1.05f, 1.35f, 1.05f);
+                var color = new MaterialPropertyBlock();
+                color.SetColor("_BaseColor", new Color(.75f, .28f, .95f));
+                instance.GetComponent<Renderer>().SetPropertyBlock(color);
+            }
+            instance.name = "God Boss Shrine";
+            shrine.instance = instance;
+        }
+
+        private bool TrySummonGod(GodShrineState shrine)
+        {
+            if (shrine == null || shrine.used || godBoss) return false;
+
+            var motor = godBossData.prefab.GetComponent<CharacterController>();
+            if (!motor) return false;
+            float radius = motor.radius;
+            float height = Mathf.Max(radius * 2, godBossData.height);
             for (int i = 0; i < 16; i++)
             {
-                Vector3 offset = Quaternion.Euler(0, Random.Range(0,360), 0) * Vector3.forward * godBossData.spawnDistance;
-                if (!TryFindGround(player.transform.position + offset, out var hit)) continue;
-                var prefabMotor = godBossData.prefab.GetComponent<CharacterController>();
-                float radius = prefabMotor.radius, height = Mathf.Max(radius * 2, godBossData.height);
-                if (Physics.CheckCapsule(hit.point + Vector3.up * (radius + .15f),
-                    hit.point + Vector3.up * (height - radius), radius * .95f, ~LayerMask.GetMask("Ragdoll"), QueryTriggerInteraction.Ignore)) continue;
-                godBoss = Instantiate(godBossData.prefab, hit.point + Vector3.up * .1f, Quaternion.identity, transform);
-                int appearance=GameSave.GetInt(GodAppearanceKey);
-                if(GameSave.GetInt(GodAppearanceDayKey)!=SpawnDayNumber){appearance++;GameSave.SetInt(GodAppearanceKey,appearance);GameSave.SetInt(GodAppearanceDayKey,SpawnDayNumber);GameSave.Save();}
-                godBoss.Initialize(this, player, SpawnDayNumber,Mathf.Max(1,appearance));
-                GameData.Player.Script.SurvivorMonsterDiscovery.Announce(godBoss,godBossData.prefab,"God Boss",true);
+                Vector3 offset = Quaternion.Euler(0, Random.Range(0,360f), 0) * Vector3.forward * godBossData.spawnDistance;
+                if (!TryFindGround(shrine.point + offset, out var ground)) continue;
+                if (Physics.CheckCapsule(ground.point + Vector3.up * (radius + .15f),
+                    ground.point + Vector3.up * Mathf.Max(radius + .15f, height - radius), radius * .95f,
+                    ~LayerMask.GetMask("Ragdoll"), QueryTriggerInteraction.Ignore)) continue;
+
+                int appearance = Mathf.Max(1, GameSave.GetInt(GodAppearanceKey) + 1);
+                godBoss = Instantiate(godBossData.prefab, ground.point + Vector3.up * .1f, Quaternion.identity, transform);
+                godBoss.Initialize(this, player, SpawnDayNumber, appearance, godBossData.ShrineMultiplier(spawnElapsedSeconds));
                 godBoss.Defeated += OnGodDefeated;
-                ForecastChanged?.Invoke(); break;
+                shrine.used = true;
+                shrine.instance.SetActive(false);
+                GameSave.SetInt(GodAppearanceKey, appearance);
+                SaveWorld();
+                GameSave.Save();
+                GameData.Player.Script.SurvivorMonsterDiscovery.Announce(godBoss, godBossData.prefab, "God Boss", true);
+                ForecastChanged?.Invoke();
+                return true;
             }
-            return;
+            return false;
         }
         private void OnGodDefeated(GodBossController boss)
         {
             boss.Defeated -= OnGodDefeated;
             if(godBossData&&godBossData.lootAndRewards){
                 var loot=godBossData.lootAndRewards;
-                MonsterKillCredit.Notify(boss.Health.LastDamageSource,loot,true,MonsterLootSettings.RewardsFor(loot).experience*MonsterLootSettings.BossExperience(loot.boss.experienceMultiplier));
+                float xpMultiplier = MonsterLootSettings.BossExperience(loot.boss.experienceMultiplier) * boss.ExperienceMultiplier;
+                MonsterKillCredit.Notify(boss.Health.LastDamageSource,loot,true,MonsterLootSettings.RewardsFor(loot).experience*xpMultiplier);
                 var cards=FindAnyObjectByType<MiningCardSystem>();if(cards)cards.TryDrop(boss.transform.position,true,loot);
-                GrantRewards(loot,boss.transform.position,MonsterLootSettings.BossGold(loot.boss.goldMultiplier),MonsterLootSettings.BossExperience(loot.boss.experienceMultiplier),boss.AppearanceNumber);
+                GrantRewards(loot,boss.transform.position,MonsterLootSettings.BossGold(loot.boss.goldMultiplier),xpMultiplier,boss.AppearanceNumber);
             }
-            GameSave.SetInt(GodDefeatedDayKey, boss.EncounterDay); GameSave.Save();
             NotifyDefeated(boss.transform.position);
             godBoss = null; ForecastChanged?.Invoke();
         }
@@ -114,7 +177,14 @@ namespace MiningSimulator.Ores
         private void ResetGodEncounter()
         {
             if (godBoss) { godBoss.Defeated -= OnGodDefeated; godBoss.gameObject.SetActive(false); Destroy(godBoss.gameObject); }
-            godBoss = null; godRolledDay=-1;godSelected=false; godRetry = 0; godSummons.Clear();
+            foreach (var shrine in godShrines)
+            {
+                if (!shrine.instance) continue;
+                shrine.instance.SetActive(false);
+                Destroy(shrine.instance);
+            }
+            godShrines.Clear();
+            godBoss = null; godRetry = 0; godSummons.Clear();
         }
     }
 }

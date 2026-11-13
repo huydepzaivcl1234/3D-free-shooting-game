@@ -16,15 +16,24 @@ namespace MiningSimulator.Ores
         [Range(0f, 1f), SerializeField] private float musicVolume = 0.55f;
         [SerializeField] private AudioMixerGroup musicMixerGroup;
 
-        [Header("Upgrade panel")]
-        [SerializeField] AudioClip upgradeMusic, cardHoverSfx, cardPickSfx;
-        [Range(0,1),SerializeField] float upgradeMusicVolume=.35f, cardHoverVolume=.5f;
+        [Header("Upgrade Panel Music")]
+        [SerializeField] AudioClip upgradeMusic;
+        [Range(0,1),SerializeField] float upgradeMusicVolume=.35f;
         [Min(0),SerializeField] float upgradeMusicFadeSeconds=.8f;
+
+        [Header("Upgrade Card SFX")]
+        [Tooltip("Played when the pointer enters an available upgrade card.")]
+        [SerializeField] AudioClip cardHoverSfx;
+        [Range(0f, 1f), SerializeField] float cardHoverVolume = .5f;
+        [Tooltip("Played when an upgrade is confirmed. Leave empty to use Upgrade Purchased SFX.")]
+        [SerializeField] AudioClip cardPickSfx;
+        [Range(0f, 1f), SerializeField] float cardPickVolume = .75f;
         public AudioClip UpgradeMusic=>upgradeMusic;
         public AudioClip CardHoverSfx=>cardHoverSfx;
         public AudioClip CardPickSfx=>cardPickSfx?cardPickSfx:upgradePurchasedSfx;
         public float UpgradeMusicVolume=>Mathf.Clamp01(upgradeMusicVolume);
         public float CardHoverVolume=>Mathf.Clamp01(cardHoverVolume);
+        public float CardPickVolume => Mathf.Clamp01(cardPickVolume);
         public float UpgradeMusicFadeSeconds=>Mathf.Max(0,upgradeMusicFadeSeconds);
 
         [Header("World Ambience")]

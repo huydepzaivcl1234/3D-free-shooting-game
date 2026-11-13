@@ -309,6 +309,12 @@ MonoBehaviour:
     amount: 1
     unit: 
     icon: {fileID: 21300000, guid: 1f59f0c79b8e51c42913c56dbc59aa7a, type: 3}
+  - id: 43
+    title: Giant Bomb
+    description: Lob a giant bomb after dealing damage 100 times.
+    amount: 1
+    unit: ''
+    icon: {fileID: 21300000, guid: 561372c982d7a5a48adbc6a39f7aaaa0, type: 3}
   basicRarityBonusPercent:
   - 0
   - 3
@@ -498,7 +504,10 @@ MonoBehaviour:
       epicPercent: 5
       rarePercent: 3
       uncommonPercent: 17
-    legendary: []
+    legendary:
+    - id: 43
+      weight: 1
+      amountMultiplier: 1
     epic:
     - id: 34
       weight: 1

@@ -268,6 +268,9 @@ namespace MiningSimulator.Ores
                 if (collider == null || collider is TerrainCollider || collider.transform.IsChildOf(owner.transform) ||
                     (victim != null && collider.transform.IsChildOf(victim)) ||
                     collider.bounds.max.y <= foot.y + clearance) continue;
+                // The horizontal sweep can meet an uphill ground mesh. The grid checks its slope and step separately.
+                if (collider is MeshCollider && GroundSurfaceLayers.Contains(collider.gameObject.layer) &&
+                    Vector3.Angle(hit.normal, Vector3.up) <= grid.MaximumSlope) continue;
                 if (hit.distance < nearest) { nearest = hit.distance; obstacle = collider; }
             }
             return obstacle == null && grid.IsSegmentClear(foot, foot + direction * distance, profile.Radius, profile.Height);

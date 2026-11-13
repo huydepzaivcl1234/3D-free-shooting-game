@@ -20,6 +20,78 @@ namespace GameData.Player.Script
         private GameObject flyingSword;
         private VisualEffect swordSlash;
         private float swordVfxTime;
+        private GameObject swordBladeGlow;
+        private Mesh swordGlowMesh;
+        private Material swordGlowMaterial;
+        private const int CrescentSegments = 48;
+        private const int CrescentRows = 2;
+        private readonly Vector3[] swordGlowVertices = new Vector3[(CrescentSegments + 1) * CrescentRows];
+        private readonly Color[] swordGlowColors = new Color[(CrescentSegments + 1) * CrescentRows];
+        // The same acceleration curve drives the blade, contact sweep and VFX clock.
+        private static float SwordProgress(float t){t=Mathf.Clamp01(t);return t*t*t*(t*(t*6-15)+10);}
+
+        private void RenderBladeGlow(float progress, float opacity)
+        {
+            if (!swordBladeGlow)
+            {
+                swordBladeGlow = new GameObject("Sword full-blade glow");
+                var filter = swordBladeGlow.AddComponent<MeshFilter>();
+                var renderer = swordBladeGlow.AddComponent<MeshRenderer>();
+                swordGlowMesh = new Mesh { name = "Sword blade sweep" };
+                swordGlowMesh.MarkDynamic();
+                filter.sharedMesh = swordGlowMesh;
+                var triangles = new int[CrescentSegments * (CrescentRows - 1) * 6];
+                int index = 0;
+                for (int segment = 0; segment < CrescentSegments; segment++)
+                {
+                    for (int band = 0; band < CrescentRows - 1; band++)
+                    {
+                        int vertex = segment * CrescentRows + band;
+                        triangles[index++] = vertex;
+                        triangles[index++] = vertex + CrescentRows;
+                        triangles[index++] = vertex + 1;
+                        triangles[index++] = vertex + 1;
+                        triangles[index++] = vertex + CrescentRows;
+                        triangles[index++] = vertex + CrescentRows + 1;
+                    }
+                }
+
+                swordGlowMesh.vertices = swordGlowVertices;
+                swordGlowMesh.triangles = triangles;
+                var uv = new Vector2[swordGlowVertices.Length];
+                for (int segment = 0; segment <= CrescentSegments; segment++)
+                {
+                    float tail = (float)segment / CrescentSegments;
+                    uv[segment * CrescentRows] = new Vector2(0f, tail);
+                    uv[segment * CrescentRows + 1] = new Vector2(1f, tail);
+                }
+                swordGlowMesh.uv = uv;
+                swordGlowMaterial = new Material(Resources.Load<Shader>("SurvivorSwordCrescent"));
+                renderer.sharedMaterial = swordGlowMaterial;
+                renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            }
+
+            float radius = Settings.rare.flyingSword.cleaveRadius;
+            float visibleSweep = Mathf.Min(progress, .88f);
+            swordBladeGlow.SetActive(true);
+            swordBladeGlow.transform.position = swordState.center;
+            for (int segment = 0; segment <= CrescentSegments; segment++)
+            {
+                float tail = (float)segment / CrescentSegments;
+                Vector3 radial = SwordRadial(progress - visibleSweep * tail);
+                float width = .9f * (1f - Mathf.SmoothStep(0f, 1f, tail));
+                float lift = .12f * Mathf.Sin(tail * Mathf.PI) * radius;
+                int vertex = segment * CrescentRows;
+                swordGlowVertices[vertex] = radial * (radius * (1f - width));
+                swordGlowVertices[vertex + 1] = radial * radius + Vector3.up * lift;
+                swordGlowColors[vertex] = swordGlowColors[vertex + 1] = new Color(1f, 1f, 1f, opacity);
+            }
+
+            swordGlowMesh.vertices = swordGlowVertices;
+            swordGlowMesh.colors = swordGlowColors;
+            swordGlowMesh.RecalculateBounds();
+        }
+
         private readonly List<CharacterHealth> swordVictims=new();
         private readonly HashSet<CharacterHealth> swordHitTargets=new();
         public int SwordSlashes {get;private set;}
@@ -41,19 +113,25 @@ namespace GameData.Player.Script
             EnsureSword();if(!flyingSword)return;flyingSword.SetActive(true);
             float t=swordState.phase==1?swordState.time/Mathf.Max(.001f,swordState.approach):swordState.phase==2?swordState.time/Mathf.Max(.001f,swordState.swing):swordState.time/Mathf.Max(.001f,swordState.recovery);
             t=Mathf.Clamp01(t);var rule=Settings.rare.flyingSword;float radius=rule.cleaveRadius*.55f;
-            var radial=SwordRadial(swordState.phase==1?0:swordState.phase==3?1:t);var slashPosition=swordState.center+radial*radius;
+            var radial=SwordRadial(swordState.phase==1?0:swordState.phase==3?1:SwordProgress(t));var slashPosition=swordState.center+radial*radius;
             var idleRotation=Quaternion.Euler(12,swordState.orbit,-25);
             var slashRotation=Quaternion.LookRotation(Vector3.up,radial);
             flyingSword.transform.localScale=Vector3.one*(rule.cleaveRadius*.5f);
             if(swordState.phase==0)flyingSword.transform.SetPositionAndRotation(SwordIdlePosition,idleRotation);
-            else if(swordState.phase==1)flyingSword.transform.SetPositionAndRotation(Vector3.Lerp(swordState.start,slashPosition,Mathf.SmoothStep(0,1,t)),Quaternion.Slerp(idleRotation,slashRotation,t));
+            else if(swordState.phase==1)flyingSword.transform.SetPositionAndRotation(Vector3.Lerp(swordState.start,slashPosition,Mathf.SmoothStep(0,1,t)),Quaternion.Slerp(idleRotation,slashRotation,Mathf.SmoothStep(0,1,t)));
             else if(swordState.phase==2)flyingSword.transform.SetPositionAndRotation(slashPosition,slashRotation);
             else flyingSword.transform.SetPositionAndRotation(Vector3.Lerp(swordState.start,SwordIdlePosition,Mathf.SmoothStep(0,1,t)),Quaternion.Slerp(slashRotation,idleRotation,t));
+            if (swordState.phase == 2)
+                RenderBladeGlow(SwordProgress(t), 1f);
+            else if (swordState.phase == 3 && t < .55f)
+                RenderBladeGlow(1f, 1f - Mathf.SmoothStep(0f, .55f, t));
+            else if (swordBladeGlow)
+                swordBladeGlow.SetActive(false);
             if(!swordSlash)return;
             if(swordState.phase!=2){swordSlash.gameObject.SetActive(false);return;}
             swordSlash.transform.SetPositionAndRotation(swordState.center,Quaternion.LookRotation(swordState.forward,Vector3.up)*Quaternion.Euler(0,rule.slashYawOffset,0));
             swordSlash.transform.localScale=Vector3.one*(rule.cleaveRadius/Mathf.Max(.01f,rule.slashReferenceRadius));
-            float visualTime=t*(rule.cleaveDegrees/360f)/1.8f;
+            float visualTime=SwordProgress(t)*(rule.cleaveDegrees/360f)/1.8f;
             if(!swordSlash.gameObject.activeSelf||visualTime<swordVfxTime){swordSlash.gameObject.SetActive(true);swordSlash.SetFloat("SlashSpeed",1.8f);swordSlash.pause=true;swordSlash.Reinit();swordVfxTime=0;}
             if(visualTime>swordVfxTime){float delta=visualTime-swordVfxTime;uint steps=(uint)Mathf.Max(1,Mathf.CeilToInt(delta*120));swordSlash.Simulate(delta/steps,steps);swordVfxTime=visualTime;}
         }
@@ -76,7 +154,7 @@ namespace GameData.Player.Script
                 if(swordState.phase==1&&swordState.time>=swordState.approach){swordState.time-=swordState.approach;swordState.phase=2;}
                 if(swordState.phase==2){
                     // Substeps cover the complete blade sweep even at a low frame rate.
-                    if(!(swordState.sweepVersion==0&&swordState.hit))SweepSword(Mathf.Clamp01(previous/Mathf.Max(.001f,swordState.swing)),Mathf.Clamp01(swordState.time/Mathf.Max(.001f,swordState.swing)));
+                    if(!(swordState.sweepVersion==0&&swordState.hit))SweepSword(SwordProgress(previous/Mathf.Max(.001f,swordState.swing)),SwordProgress(swordState.time/Mathf.Max(.001f,swordState.swing)));
                     if(swordState.time>=swordState.swing){swordState.time-=swordState.swing;swordState.start=swordState.center+SwordRadial(1)*rule.cleaveRadius*.55f;swordState.phase=3;}
                 }
                 if(swordState.phase==3&&swordState.time>=swordState.recovery){swordState.phase=0;swordState.time=0;}
@@ -107,7 +185,7 @@ namespace GameData.Player.Script
                 }
             }
         }
-        private void ResetSword(){swordState.phase=0;swordState.time=0;swordState.cooldown=0;swordState.hit=false;swordState.hitTargets?.Clear();swordHitTargets.Clear();if(flyingSword)flyingSword.SetActive(false);if(swordSlash)swordSlash.gameObject.SetActive(false);}
-        private void DestroySword(){if(flyingSword)Destroy(flyingSword);if(swordSlash)Destroy(swordSlash.gameObject);}
+        private void ResetSword(){swordState.phase=0;swordState.time=0;swordState.cooldown=0;swordState.hit=false;swordState.hitTargets?.Clear();swordHitTargets.Clear();if(swordBladeGlow)swordBladeGlow.SetActive(false);if(flyingSword)flyingSword.SetActive(false);if(swordSlash)swordSlash.gameObject.SetActive(false);}
+        private void DestroySword(){if(swordBladeGlow)Destroy(swordBladeGlow);if(swordGlowMesh)Destroy(swordGlowMesh);if(swordGlowMaterial)Destroy(swordGlowMaterial);if(flyingSword)Destroy(flyingSword);if(swordSlash)Destroy(swordSlash.gameObject);}
     }
 }

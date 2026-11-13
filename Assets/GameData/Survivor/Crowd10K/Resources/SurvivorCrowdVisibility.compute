@@ -1,0 +1,101 @@
+#pragma kernel Cull
+
+struct Instance
+{
+    float4x4 transform;
+    float4 animation, tint, sphere;
+};
+struct VisibleInstance { uint index; float fade; };
+
+StructuredBuffer<Instance> _CrowdInstances;
+AppendStructuredBuffer<VisibleInstance> _Visible0, _Visible1, _Visible2, _Visible3;
+float4 _Planes[6], _LodDistances;
+float4 _OccluderMin[32], _OccluderMax[32];
+float3 _Eye, _Forward;
+uint _Count, _OccluderCount, _Orthographic;
+
+bool CrossesBox(float3 start, float3 end, float3 low, float3 high)
+{
+    float3 ray = end - start;
+    float nearT = 0;
+    float farT = .995;
+    [unroll] for (uint axis = 0; axis < 3; axis++)
+    {
+        if (abs(ray[axis]) < 1e-6)
+        {
+            if (start[axis] <= low[axis] || start[axis] >= high[axis]) return false;
+            continue;
+        }
+        float a = (low[axis] - start[axis]) / ray[axis];
+        float b = (high[axis] - start[axis]) / ray[axis];
+        nearT = max(nearT, min(a, b));
+        farT = min(farT, max(a, b));
+    }
+    return nearT > 0 && nearT < farT;
+}
+
+bool IsOccluded(float3 center, float radius)
+{
+    for (uint box = 0; box < _OccluderCount; box++)
+    {
+        float3 low = _OccluderMin[box].xyz + .01;
+        float3 high = _OccluderMax[box].xyz - .01;
+        if (any(low >= high) || all(_Eye >= low && _Eye <= high)) continue;
+        if (all(center + radius >= low) && all(center - radius <= high)) continue;
+
+        bool covered = true;
+        for (uint corner = 0; corner < 8 && covered; corner++)
+        {
+            float3 offset = float3(corner & 1, (corner >> 1) & 1, (corner >> 2) & 1) * 2 - 1;
+            float3 cornerPosition = center + radius * offset;
+            float3 start = _Orthographic ? cornerPosition - _Forward * dot(cornerPosition - _Eye, _Forward) : _Eye;
+            covered = CrossesBox(start, cornerPosition, low, high);
+        }
+        if (covered) return true;
+    }
+    return false;
+}
+
+void AddVisible(uint lod, uint index, float fade)
+{
+    VisibleInstance instance;
+    instance.index = index;
+    instance.fade = fade;
+    if (lod == 0) _Visible0.Append(instance);
+    else if (lod == 1) _Visible1.Append(instance);
+    else if (lod == 2) _Visible2.Append(instance);
+    else _Visible3.Append(instance);
+}
+
+[numthreads(128,1,1)]
+void Cull(uint index : SV_DispatchThreadID)
+{
+    if (index >= _Count) return;
+    float4 sphere = _CrowdInstances[index].sphere;
+    if (sphere.w <= 0) return;
+    [unroll] for (uint plane = 0; plane < 6; plane++)
+        if (dot(_Planes[plane], float4(sphere.xyz, 1)) < -sphere.w) return;
+    if (IsOccluded(sphere.xyz, sphere.w)) return;
+
+    float distanceToEye = distance(_Eye, sphere.xyz);
+    float3 spans = _LodDistances.xyz - float3(0, _LodDistances.xy);
+    float3 widths = min(2, min(spans, spans.yzz) * .25);
+    for (uint boundary = 0; boundary < 3; boundary++)
+    {
+        float threshold = _LodDistances[boundary];
+        float width = widths[boundary];
+        if (width > 0 && abs(distanceToEye - threshold) < width)
+        {
+            float farWeight = smoothstep(threshold - width, threshold + width, distanceToEye);
+            AddVisible(boundary, index, 1 - farWeight);
+            AddVisible(boundary + 1, index, -(1 - farWeight));
+            return;
+        }
+        if (distanceToEye < threshold)
+        {
+            AddVisible(boundary, index, 1);
+            return;
+        }
+    }
+    AddVisible(3, index, 1);
+}

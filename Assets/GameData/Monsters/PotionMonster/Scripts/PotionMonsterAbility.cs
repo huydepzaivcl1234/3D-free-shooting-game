@@ -6,6 +6,16 @@ namespace MiningSimulator.Ores
     public sealed class PotionMonsterAbility : MonoBehaviour,IMonsterRangedAttack
     {
         public Transform releasePoint,heldPotion;
+        [System.Serializable]
+        private struct SolePoint
+        {
+            public Vector3 thighPoint, shinPoint;
+            public float shinWeight;
+        }
+
+        [SerializeField] private Transform groundVisual, leftThigh, leftShin, rightThigh, rightShin;
+        [SerializeField] private SolePoint[] leftSole, rightSole;
+        private float groundVisualY;
         private MushroomMonster monster;
         private Animator animator;
         private bool thrown;
@@ -47,7 +57,7 @@ namespace MiningSimulator.Ores
             shot.Launch(monster,preparedTarget,preparedKind);shot.gameObject.SetActive(true);
             prepared=false;thrown=true;RestoreHeldVisuals();
         }
-        private void Awake(){monster=GetComponent<MushroomMonster>();animator=GetComponentInChildren<Animator>();if(heldPotion)heldModels[1]=heldPotion.gameObject;}
+        private void Awake(){monster=GetComponent<MushroomMonster>();animator=GetComponentInChildren<Animator>();if(heldPotion)heldModels[1]=heldPotion.gameObject;if(groundVisual)groundVisualY=groundVisual.localPosition.y;}
         private void OnEnable(){thrown=false;prepared=false;RestoreHeldVisuals();}
         public static void FitPotion(GameObject go,float size){
             foreach(var c in go.GetComponentsInChildren<Collider>())c.enabled=false;
@@ -68,6 +78,40 @@ namespace MiningSimulator.Ores
                 thrown=false;RestoreHeldVisuals();
             }
         }
+        private void LateUpdate()
+        {
+            if (!groundVisual || !monster || !monster.Health || monster.Health.Health <= 0 ||
+                monster.IsDespawning || WorldActorVisibility.ShouldPause(monster)) return;
+
+            var position = groundVisual.localPosition;
+            position.y = groundVisualY;
+            groundVisual.localPosition = position;
+            if (monster.TryGetComponent<SurvivorEnemyStatus>(out var status) && status.Airborne) return;
+
+            float lowest = Mathf.Min(SoleHeight(leftThigh, leftShin, leftSole),
+                SoleHeight(rightThigh, rightShin, rightSole));
+            if (!float.IsFinite(lowest)) return;
+            float ground = transform.position.y;
+            var grid = WorldNavigationGrid.Instance;
+            if (grid && grid.TryGetGroundPoint(transform.position, out var point)) ground = point.y;
+            groundVisual.position += Vector3.up * (ground + .002f - lowest);
+        }
+
+        private static float SoleHeight(Transform thigh, Transform shin, SolePoint[] points)
+        {
+            if (!thigh || !shin || points == null) return float.PositiveInfinity;
+            var thighMatrix = thigh.localToWorldMatrix;
+            var shinMatrix = shin.localToWorldMatrix;
+            float lowest = float.PositiveInfinity;
+            foreach (var point in points)
+            {
+                float y = Mathf.Lerp(thighMatrix.MultiplyPoint3x4(point.thighPoint).y,
+                    shinMatrix.MultiplyPoint3x4(point.shinPoint).y, point.shinWeight);
+                lowest = Mathf.Min(lowest, y);
+            }
+            return lowest;
+        }
+
         private void OnDrawGizmosSelected(){if(!Data)return;Gizmos.color=Color.red;Gizmos.DrawWireSphere(transform.position,Range);Gizmos.color=Color.green;Gizmos.DrawWireSphere(transform.position,Data.healingRange);}
     }
 }

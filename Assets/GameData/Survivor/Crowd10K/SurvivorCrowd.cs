@@ -21,6 +21,11 @@ namespace MiningSimulator.Ores
         [SerializeField] private CharacterHealth player;
         [SerializeField, Min(64)] private int capacity = 10000;
         [SerializeField] private bool castNearbyShadows = true;
+        [SerializeField] private bool useIndirectRendering = true;
+        private CrowdIndirectRenderer indirect;
+        private bool attemptedIndirect;
+        private float walkCycle;
+        public bool UsesIndirectRendering => indirect != null;
         public int AliveCount { get; private set; }
         public int DrawnCount { get; private set; }
         public int ProxyCount => used;
@@ -45,7 +50,10 @@ namespace MiningSimulator.Ores
         private readonly Stack<int> free = new();
         private NativeArray<float3> positions, next, ground;
         private NativeArray<float4> motion;
-        private NativeArray<float> scales;
+        private NativeArray<float> scales, climbHeights, nextClimbHeights;
+        private NativeArray<float4> detailedGround;
+        private NativeArray<byte> groundSampleState;
+        private int groundProbeCursor;
         private NativeArray<Matrix4x4> renderMatrices;
         private NativeArray<byte> state, walkable;
         private NativeArray<int> distances, queue;
@@ -74,7 +82,7 @@ namespace MiningSimulator.Ores
             if(Current && Current!=this){enabled=false;return;} Current=this;
             capacity=Mathf.Max(64,capacity);actors=new Actor[capacity];
             positions=new(capacity,Allocator.Persistent);next=new(capacity,Allocator.Persistent);motion=new(capacity,Allocator.Persistent);state=new(capacity,Allocator.Persistent);
-            scales=new(capacity,Allocator.Persistent);renderMatrices=new(capacity,Allocator.Persistent);
+            scales=new(capacity,Allocator.Persistent);climbHeights=new(capacity,Allocator.Persistent);nextClimbHeights=new(capacity,Allocator.Persistent);renderMatrices=new(capacity,Allocator.Persistent);
             cells=new(capacity,Allocator.Persistent);properties=new MaterialPropertyBlock();shuttingDown=false;
         }
         private void Start(){view=Camera.main;navigation=WorldNavigationGrid.Instance;cards=FindAnyObjectByType<MiningCardSystem>();}
@@ -94,7 +102,7 @@ namespace MiningSimulator.Ores
             int i=free.Count>0?free.Pop():used++;
             var a=actors[i];
             if(a==null){
-                var go=new GameObject("Mushroom — GPU combat proxy");go.SetActive(false);go.layer=LayerMask.NameToLayer("Enemy");go.transform.SetParent(transform,false);
+                var go=new GameObject("Mushroom â€” GPU combat proxy");go.SetActive(false);go.layer=LayerMask.NameToLayer("Enemy");go.transform.SetParent(transform,false);
                 a=actors[i]=new Actor{transform=go.transform};a.health=go.AddComponent<CharacterHealth>();a.health.CrowdOwner=this;a.health.CrowdSlot=i;
                 int slot=i;a.health.Died+=()=>Killed(slot);a.health.Damaged+=()=>Hit(slot);
             }
@@ -103,8 +111,8 @@ namespace MiningSimulator.Ores
             float growth=a.reward.StatMultiplier(a.level);float low=Mathf.Max(.01f,Mathf.Min(a.reward.randomStatMultiplier.x,a.reward.randomStatMultiplier.y)),high=Mathf.Max(low,Mathf.Max(a.reward.randomStatMultiplier.x,a.reward.randomStatMultiplier.y));
             a.damage=a.combat.damage*growth*UnityEngine.Random.Range(low,high);a.scale=Mathf.Max(.01f,entry.prefab.transform.lossyScale.x)*(zone?Mathf.Abs(zone.transform.lossyScale.x):1);
             a.lifetime=a.reward.combatSeconds;
-            a.clip=1;a.clock=a.cooldown=a.flash=0;a.phase=(i*.618034f)%1;a.living=true;a.paused=false;a.hit=false;
-            scales[i]=a.scale;positions[i]=next[i]=point;state[i]=1;a.transform.SetPositionAndRotation(point,Quaternion.identity);a.transform.localScale=Vector3.one*a.scale;
+            a.clip=1;a.clock=a.cooldown=a.flash=0;a.phase=(i%8)/8f;a.living=true;a.paused=false;a.hit=false;
+            scales[i]=a.scale;climbHeights[i]=nextClimbHeights[i]=0;positions[i]=next[i]=point;state[i]=1;a.transform.SetPositionAndRotation(point,Quaternion.identity);a.transform.localScale=Vector3.one*a.scale;
             a.health.ConfigureSpawnHealth(a.combat.maxHealth*growth*UnityEngine.Random.Range(low,high));a.health.ConfigureRegeneration(a.combat.regenAmount,a.combat.regenInterval);a.health.ConfigureHealingBonus(a.reward.healingBonusPercent);a.health.ConfigureDefenses(a.reward.ArmorAtLevel(a.level),a.reward.MagicResistanceAtLevel(a.level),a.reward.resistanceScale);
             // A pooled life must not inherit a previous attacker or unfinished burn.
             a.health.Respawn();a.health.enabled=true;a.health.gameObject.SetActive(true);AliveCount++;lastSpawnedSlot=i;
@@ -124,6 +132,7 @@ namespace MiningSimulator.Ores
             var a=actors[i];if(shuttingDown||!a.living)return;
             a.living=false;AliveCount--;state[i]=2;a.clip=3;a.clock=0;a.deadUntil=Time.time+Mathf.Max(.2f,a.combat.deathDelay);
             if(a.health.HealthBar)a.health.HealthBar.gameObject.SetActive(false);
+            climbHeights[i]=nextClimbHeights[i]=0;
             if(navigation&&navigation.TryGetGroundPoint(a.transform.position,out var foot))positions[i]=next[i]=foot;
             a.zone?.NotifyDefeated(a.transform.position);
             MonsterKillCredit.Notify(a.health.LastDamageSource,a.reward,false,MonsterLootSettings.RewardsFor(a.reward).experience);
@@ -147,6 +156,7 @@ namespace MiningSimulator.Ores
             int count=columns*rows;groundCopy=new Vector3[count];openCopy=new byte[count];navigation.CopyCrowdCells(groundCopy,openCopy);
             ground=new(count,Allocator.Persistent);walkable=new(count,Allocator.Persistent);flow=new(count,Allocator.Persistent);distances=new(count,Allocator.Persistent);queue=new(count,Allocator.Persistent);
             for(int i=0;i<count;i++){ground[i]=groundCopy[i];walkable[i]=openCopy[i];}
+            detailedGround=new(count,Allocator.Persistent);groundSampleState=new(count,Allocator.Persistent);
             gridRevision=navigation.Revision;targetCell=-1;return true;
         }
         private void Update()
@@ -155,7 +165,9 @@ namespace MiningSimulator.Ores
             using var sample=UpdateMarker.Auto();
             if(!view)view=Camera.main;if(view)GeometryUtility.CalculateFrustumPlanes(view,planes);
             Vector3 playerPosition=player.transform.position;bool targetAlive=player.IsTargetable;
-            float dt=Mathf.Min(Time.deltaTime,.05f);var perf=GameplayPerformanceData.Current;bool freeze=perf&&perf.freezeOffscreenSimulation&&perf.cullOffscreenActors;
+            float dt=Mathf.Min(Time.deltaTime,.05f);
+            walkCycle=Mathf.Repeat(walkCycle+dt/animationData.clipLengths[1],1);
+            var perf=GameplayPerformanceData.Current;bool freeze=perf&&perf.freezeOffscreenSimulation&&perf.cullOffscreenActors;
             for(int i=0;i<used;i++){
                 if(state[i]==0)continue;var a=actors[i];
                 a.paused=freeze&&view&&!GeometryUtility.TestPlanesAABB(planes,new Bounds((Vector3)positions[i]+Vector3.up*a.scale,Vector3.one*(3*a.scale+.5f)));
@@ -164,6 +176,7 @@ namespace MiningSimulator.Ores
                 if(a.lifetime>0){a.lifetime-=dt;if(a.lifetime<=0){Release(i);continue;}}
                 var status=a.health.CrowdStatus;
                 if(status)positions[i]=a.transform.position;
+                if(status&&status.Airborne)climbHeights[i]=0;
                 if(a.health.NeedsCrowdHealthTick)a.health.TickCrowdHealth(dt);if(!a.living)continue;
                 a.flash=Mathf.Max(0,a.flash-dt);a.cooldown=Mathf.Max(0,a.cooldown-dt);
                 float range=a.combat.attackRange*a.scale;float distance=math.distance(positions[i],(float3)playerPosition);
@@ -184,6 +197,7 @@ namespace MiningSimulator.Ores
                 motion[i]=new float4(a.combat.moveSpeed*(status?status.MovementMultiplier:1),.4f*a.scale,range*.85f,move?1:0);
             }
             watch.Restart();
+            SampleOccupiedGround(perf ? perf.crowdGroundProbeCellsPerFrame : 8);
             int2 targetXY=(int2)math.floor(((float3)playerPosition-origin).xz/cellSize);
             int cell=math.clamp(targetXY.y,0,rows-1)*columns+math.clamp(targetXY.x,0,columns-1);
             JobHandle dependency=default;
@@ -193,10 +207,49 @@ namespace MiningSimulator.Ores
                 dependency=new SmoothFlowJob{open=walkable,ground=ground,distances=distances,flow=flow,width=columns,depth=rows,target=cell,maxStep=navigation.MaximumStep}.Schedule(walkable.Length,128,dependency);
             }
             cells.Clear();var hash=new HashJob{positions=positions,state=state,cells=cells.AsParallelWriter()}.Schedule(used,128,dependency);
-            new MoveJob{positions=positions,next=next,motion=motion,state=state,cells=cells,ground=ground,open=walkable,flow=flow,origin=origin,cellSize=cellSize,width=columns,depth=rows,target=playerPosition,dt=dt,maxStep=navigation.MaximumStep}.Schedule(used,64,hash).Complete();
+            new MoveJob{positions=positions,next=next,motion=motion,state=state,cells=cells,ground=ground,open=walkable,flow=flow,origin=origin,cellSize=cellSize,width=columns,depth=rows,target=playerPosition,dt=dt,maxStep=navigation.MaximumStep,
+                detail=detailedGround,detailState=groundSampleState,
+                climbHeights=climbHeights,nextClimbHeights=nextClimbHeights,
+                maxClimb=perf?perf.crowdMaximumClimbHeight:1.8f}.Schedule(used,64,hash).Complete();
+            (climbHeights,nextClimbHeights)=(nextClimbHeights,climbHeights);
             var swap=positions;positions=next;next=swap;watch.Stop();SimulationMilliseconds=watch.Elapsed.TotalMilliseconds;
             for(int i=0;i<used;i++)if(state[i]!=0&&!actors[i].paused){var a=actors[i];if(a.health.CrowdStatus&&a.health.CrowdStatus.Airborne)continue;if(math.distancesq(positions[i],next[i])>.0000001f)a.transform.position=positions[i];}
         }
+        private void SampleOccupiedGround(int budget)
+        {
+            if (budget <= 0) return;
+            int scans = Mathf.Min(used, Mathf.Max(128, budget * 32));
+            while (scans-- > 0 && budget > 0)
+            {
+                groundProbeCursor %= used;
+                int slot = groundProbeCursor++;
+                if (state[slot] != 1 || actors[slot].paused) continue;
+                int2 xy = (int2)math.floor((positions[slot] - origin).xz / cellSize);
+                if (xy.x < 0 || xy.y < 0 || xy.x >= columns || xy.y >= rows) continue;
+                int cell = xy.y * columns + xy.x;
+                if (walkable[cell] == 0 || groundSampleState[cell] != 0) continue;
+                groundSampleState[cell] = 1;
+                budget--;
+                float4 samples = default;
+                bool valid = true;
+                for (int corner = 0; corner < 4; corner++)
+                {
+                    Vector3 point = (Vector3)ground[cell] + new Vector3(
+                        (corner & 1) == 0 ? -.25f : .25f, 0, (corner & 2) == 0 ? -.25f : .25f) * cellSize;
+                    if (!navigation.TryGetGroundPoint(point, out var hit) ||
+                        Mathf.Abs(hit.y - point.y) > navigation.MaximumStep)
+                    {
+                        valid = false;
+                        break;
+                    }
+                    samples[corner] = hit.y;
+                }
+                if (!valid) continue;
+                detailedGround[cell] = samples;
+                groundSampleState[cell] = 2;
+            }
+        }
+
         private bool HasStrikeLine(Actor a,Vector3 playerPosition)
         {
             Vector3 start=a.transform.position+Vector3.up*.6f,end=playerPosition+Vector3.up*.6f;
@@ -207,38 +260,82 @@ namespace MiningSimulator.Ores
             using var sample=RenderMarker.Auto();
             DrawnCount=0;if(!animationData||!animationData.material||used==0)return;if(!view)view=Camera.main;if(!view)return;
             GeometryUtility.CalculateFrustumPlanes(view,planes);foreach(var list in visible)list.Clear();
+            if (!attemptedIndirect && useIndirectRendering)
+            {
+                attemptedIndirect = true;
+                indirect = CrowdIndirectRenderer.Create(animationData, capacity);
+            }
             Vector3 cameraPosition=view.transform.position,cameraUp=view.transform.up;
+            var bounds=navigation&&navigation.HasBaked?navigation.AreaBounds:new Bounds(transform.position,Vector3.one*1000);
+            bounds.Expand(Vector3.up*100);
+            int layer = LayerMask.NameToLayer("Enemy");
             new MatrixJob{positions=positions,scales=scales,state=state,matrices=renderMatrices,target=player?player.transform.position:Vector3.forward}.Schedule(used,128).Complete();
+            int instanceCount = 0;
+            Bounds meshBounds = animationData.meshes[0].bounds;
             for(int i=0;i<used;i++){
                 if(state[i]==0)continue;var a=actors[i];Vector3 p=positions[i];
+                if (indirect != null)
+                {
+                    var matrix = renderMatrices[i];
+                    var center = matrix.MultiplyPoint3x4(meshBounds.center);
+                    indirect.Input[instanceCount++] = new CrowdIndirectRenderer.Instance
+                    {
+                        transform = matrix,
+                        animation = AnimationParameters(a),
+                        tint = RenderTint(a),
+                        sphere = new Vector4(center.x, center.y, center.z, meshBounds.extents.magnitude * a.scale)
+                    };
+                    if (!a.health.HealthBar) continue;
+                }
                 bool inView=GeometryUtility.TestPlanesAABB(planes,new Bounds(p+Vector3.up*a.scale,Vector3.one*(3*a.scale+.5f)));
                 if(a.health.HealthBar){var bar=a.health.HealthBar;bool show=inView&&a.living&&a.health.Health<a.health.MaxHealth;if(bar.gameObject.activeSelf!=show)bar.gameObject.SetActive(show);if(show)bar.rotation=Quaternion.LookRotation(bar.position-cameraPosition,cameraUp);}
-                if(!inView)continue;
+                if(!inView || indirect != null)continue;
                 float d=Vector3.Distance(p,cameraPosition);var thresholds=animationData.lodDistances;int lod=d<thresholds[0]?0:d<thresholds[1]?1:d<thresholds[2]?2:3;
                 visible[lod].Add(i);DrawnCount++;
             }
-            var bounds=navigation&&navigation.HasBaked?navigation.AreaBounds:new Bounds(transform.position,Vector3.one*1000);bounds.Expand(Vector3.up*100);
+            if (indirect != null)
+            {
+                DrawnCount = -1; // GPU owns the visible count. Avoid a synchronous readback.
+                indirect.Draw(instanceCount, view, bounds, layer, castNearbyShadows);
+                return;
+            }
             for(int lod=0;lod<4;lod++)for(int offset=0;offset<visible[lod].Count;offset+=1023){
                 int count=Mathf.Min(1023,visible[lod].Count-offset);
                 for(int n=0;n<count;n++){
                     int i=visible[lod][offset+n];var a=actors[i];matrices[n]=renderMatrices[i];
-                    float length=animationData.clipLengths[a.clip]/(a.clip==2?a.combat.SafeAttackSpeed:1);
-                    animations[n]=new Vector4(a.clip*animationData.framesPerClip,(a.clip==2||a.clip==3?-1:1)*animationData.framesPerClip,a.clock/length+(a.clip==1?a.phase:0),0);
-                    Color tint=a.health.CrowdStatus&&a.health.CrowdStatus.Frosted?a.health.CrowdStatus.FrostTint:Color.white;
-                    if(a.flash>0)tint=Color.Lerp(tint,new Color(2.5f,2.5f,2.5f),a.flash/.15f*.8f);tints[n]=new Vector4(tint.r,tint.g,tint.b,1);
+                    animations[n]=AnimationParameters(a);
+                    tints[n]=RenderTint(a);
                 }
                 properties.SetVectorArray("_AnimData",animations);properties.SetVectorArray("_Tint",tints);
-                var parameters=new RenderParams(animationData.material){matProps=properties,layer=LayerMask.NameToLayer("Enemy"),worldBounds=bounds,shadowCastingMode=castNearbyShadows&&lod<2?ShadowCastingMode.On:ShadowCastingMode.Off};
+                var parameters=new RenderParams(animationData.material){matProps=properties,layer=layer,worldBounds=bounds,shadowCastingMode=castNearbyShadows&&lod<2?ShadowCastingMode.On:ShadowCastingMode.Off};
                 Graphics.RenderMeshInstanced(parameters,animationData.meshes[lod],0,matrices,count);
             }
         }
+        private Vector4 AnimationParameters(Actor actor)
+        {
+            float length = animationData.clipLengths[actor.clip] / (actor.clip == 2 ? actor.combat.SafeAttackSpeed : 1);
+            int frames = animationData.framesPerClip;
+            bool looping = actor.clip < 2;
+            return new Vector4(actor.clip * frames, looping ? frames : -frames,
+                actor.clip == 1 ? walkCycle + actor.phase : actor.clock / length, 0);
+        }
+
+        private static Vector4 RenderTint(Actor actor)
+        {
+            var status = actor.health.CrowdStatus;
+            Color tint = status && status.Frosted ? status.FrostTint : Color.white;
+            if (actor.flash > 0) tint = Color.Lerp(tint, new Color(2.5f, 2.5f, 2.5f), actor.flash / .15f * .8f);
+            return new Vector4(tint.r, tint.g, tint.b, 1);
+        }
+
         private void OnDisable()
         {
             if(Current!=this)return;shuttingDown=true;Current=null;
+            indirect?.Dispose();indirect=null;attemptedIndirect=false;
             if(actors!=null)foreach(var a in actors)if(a?.health){a.health.gameObject.SetActive(false);Destroy(a.health.gameObject);}
-            if(scales.IsCreated)scales.Dispose();if(renderMatrices.IsCreated)renderMatrices.Dispose();if(positions.IsCreated)positions.Dispose();if(next.IsCreated)next.Dispose();if(motion.IsCreated)motion.Dispose();if(state.IsCreated)state.Dispose();if(cells.IsCreated)cells.Dispose();DisposeGrid();used=AliveCount=0;free.Clear();
+            if(climbHeights.IsCreated)climbHeights.Dispose();if(nextClimbHeights.IsCreated)nextClimbHeights.Dispose();if(scales.IsCreated)scales.Dispose();if(renderMatrices.IsCreated)renderMatrices.Dispose();if(positions.IsCreated)positions.Dispose();if(next.IsCreated)next.Dispose();if(motion.IsCreated)motion.Dispose();if(state.IsCreated)state.Dispose();if(cells.IsCreated)cells.Dispose();DisposeGrid();used=AliveCount=0;free.Clear();
         }
-        private void DisposeGrid(){if(ground.IsCreated)ground.Dispose();if(walkable.IsCreated)walkable.Dispose();if(flow.IsCreated)flow.Dispose();if(distances.IsCreated)distances.Dispose();if(queue.IsCreated)queue.Dispose();}
+        private void DisposeGrid(){if(detailedGround.IsCreated)detailedGround.Dispose();if(groundSampleState.IsCreated)groundSampleState.Dispose();if(ground.IsCreated)ground.Dispose();if(walkable.IsCreated)walkable.Dispose();if(flow.IsCreated)flow.Dispose();if(distances.IsCreated)distances.Dispose();if(queue.IsCreated)queue.Dispose();}
         [BurstCompile] private struct FlowJob:IJob
         {
             [ReadOnly]public NativeArray<byte> open;[ReadOnly]public NativeArray<float3> ground;
@@ -312,18 +409,77 @@ namespace MiningSimulator.Ores
         [BurstCompile] private struct MoveJob:IJobParallelFor
         {
             [ReadOnly]public NativeArray<float3> positions,ground;[ReadOnly]public NativeArray<float4> motion;[ReadOnly]public NativeArray<byte> state,open;[ReadOnly]public NativeArray<float2> flow;[ReadOnly]public NativeParallelMultiHashMap<int,int> cells;
-            [WriteOnly]public NativeArray<float3> next;public float3 origin,target;public float cellSize,dt,maxStep;public int width,depth;
+            [ReadOnly]public NativeArray<float4> detail;
+            [ReadOnly]public NativeArray<byte> detailState;
+            [ReadOnly]public NativeArray<float> climbHeights;
+            [WriteOnly]public NativeArray<float> nextClimbHeights;
+            [WriteOnly]public NativeArray<float3> next;public float3 origin,target;public float cellSize,dt,maxStep,maxClimb;public int width,depth;
             public void Execute(int i){
-                float3 p=positions[i];next[i]=p;if(state[i]!=1||motion[i].w==0)return;
+                float3 p=positions[i];next[i]=p;
+                float previousClimb=climbHeights[i];
+                nextClimbHeights[i]=previousClimb;
+                if(state[i]!=1||motion[i].w==0)return;
                 int2 xy=(int2)math.floor((p-origin).xz/cellSize);if(xy.x<0||xy.y<0||xy.x>=width||xy.y>=depth)return;int index=xy.y*width+xy.x;
                 float4 m=motion[i];float2 toward=target.xz-p.xz;float2 direction=flow[index];float2 velocity=math.lengthsq(toward)>m.z*m.z?direction*m.x:float2.zero;
-                int2 cell=(int2)math.floor(p.xz/1.2f);int seen=0;float2 push=float2.zero;
-                for(int y=-1;y<=1&&seen<64;y++)for(int x=-1;x<=1&&seen<64;x++){int2 c=cell+new int2(x,y);if(cells.TryGetFirstValue(c.x*73856093^c.y*19349663,out int j,out var it))do{if(i==j)continue;seen++;float2 delta=p.xz-positions[j].xz;float ds=math.lengthsq(delta);float reach=m.y+motion[j].y;if(ds>.000001f&&ds<(reach+.12f)*(reach+.12f)){float d=math.sqrt(ds);float2 normal=delta/d;float closing=math.dot(velocity,normal);if(closing<0)velocity-=normal*closing;if(d<reach)push+=normal*(reach-d)*4;}if(seen>=64)break;}while(cells.TryGetNextValue(out j,ref it));}
+                int2 cell=(int2)math.floor(p.xz/1.2f);int seen=0;float2 push=float2.zero;float support=0;
+                for(int y=-1;y<=1&&seen<64;y++)for(int x=-1;x<=1&&seen<64;x++){int2 c=cell+new int2(x,y);if(cells.TryGetFirstValue(c.x*73856093^c.y*19349663,out int j,out var it))do{if(i==j)continue;seen++;float2 delta=p.xz-positions[j].xz;float ds=math.lengthsq(delta);float reach=m.y+motion[j].y;if(ds>.000001f&&ds<(reach+.12f)*(reach+.12f)){float d=math.sqrt(ds);float2 normal=delta/d;float closing=math.dot(velocity,normal);
+                    if (maxClimb > 0 && math.lengthsq(toward)>m.z*m.z && math.dot(direction,normal)<-.55f &&
+                        d<reach+.06f && math.abs((positions[j].y-climbHeights[j])-(p.y-previousClimb))<=maxStep)
+                    {
+                        float step = math.min(m.y, motion[j].y) * 1.65f;
+                        float height = math.min(maxClimb, climbHeights[j] + step);
+                        support = math.max(support, height * math.saturate((reach+.06f-d)/math.max(.05f,reach*.45f)));
+                    }
+                    if(math.abs(positions[j].y-p.y)<=math.max(m.y,motion[j].y)){
+                        if(closing<0)velocity-=normal*closing;if(d<reach)push+=normal*(reach-d)*4;
+                    }}if(seen>=64)break;}while(cells.TryGetNextValue(out j,ref it));}
                 velocity+=push;float length=math.length(velocity);velocity*=math.min(1,math.max(.1f,m.x)*1.5f/math.max(.001f,length));float3 candidate=p;candidate.xz+=velocity*dt;
                 int2 cellNext=(int2)math.floor((candidate-origin).xz/cellSize);if(cellNext.x<0||cellNext.y<0||cellNext.x>=width||cellNext.y>=depth)return;int nextIndex=cellNext.y*width+cellNext.x;if(open[nextIndex]==0||math.abs(ground[nextIndex].y-ground[index].y)>maxStep)return;
                 // Never cut a diagonal through a blocked corner of the authored navigation grid.
                 if(cellNext.x!=xy.x&&cellNext.y!=xy.y&&(open[xy.y*width+cellNext.x]==0||open[cellNext.y*width+xy.x]==0))return;
-                candidate.y=ground[nextIndex].y;next[i]=candidate;
+                float climb = math.lerp(previousClimb, support, math.saturate(dt * (support > previousClimb ? 5 : 3)));
+                if (climb < .005f) climb = 0;
+                nextClimbHeights[i] = climb;
+                candidate.y = SampleGroundHeight((candidate - origin).xz / cellSize, cellNext, nextIndex) + climb;
+                next[i] = candidate;
+            }
+
+            private float SampleGroundHeight(float2 gridPosition, int2 center, int anchor)
+            {
+                // Grid heights are sampled at cell centers. Blend only through walkable edges.
+                float2 delta = gridPosition - ((float2)center + .5f);
+                int2 neighbor = center + new int2(delta.x < 0f ? -1 : 1, delta.y < 0f ? -1 : 1);
+                float2 weight = math.abs(delta);
+                int x = ConnectedCell(new int2(neighbor.x, center.y), anchor);
+                int z = ConnectedCell(new int2(center.x, neighbor.y), anchor);
+                float height = ground[anchor].y;
+                float xHeight = x < 0 ? height : ground[x].y;
+                float zHeight = z < 0 ? height : ground[z].y;
+                float diagonalHeight = xHeight + zHeight - height;
+                if (x >= 0 && z >= 0)
+                {
+                    int diagonal = ConnectedCell(neighbor, x);
+                    diagonalHeight = diagonal >= 0 && math.abs(ground[diagonal].y - zHeight) <= maxStep
+                        ? ground[diagonal].y : height;
+                }
+                float bakedHeight = math.lerp(math.lerp(height, xHeight, weight.x),
+                    math.lerp(zHeight, diagonalHeight, weight.x), weight.y);
+                if (detailState[anchor] != 2) return bakedHeight;
+                float2 cellUV = gridPosition - center;
+                float2 blend = math.saturate((cellUV - .25f) * 2);
+                float4 samples = detail[anchor];
+                float refined = math.lerp(math.lerp(samples.x, samples.y, blend.x),
+                    math.lerp(samples.z, samples.w, blend.x), blend.y);
+                float2 edges = math.saturate(math.min(cellUV, 1 - cellUV) * 4);
+                return math.lerp(bakedHeight, refined, edges.x * edges.y);
+            }
+
+            private int ConnectedCell(int2 cell, int from)
+            {
+                if (cell.x < 0 || cell.y < 0 || cell.x >= width || cell.y >= depth)
+                    return -1;
+                int index = cell.y * width + cell.x;
+                return open[index] != 0 && math.abs(ground[index].y - ground[from].y) <= maxStep ? index : -1;
             }
         }
     }

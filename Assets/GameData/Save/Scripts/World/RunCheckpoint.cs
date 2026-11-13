@@ -8,10 +8,12 @@ namespace MiningSimulator.Ores
     {
         [Serializable] public sealed class Animation {public string path;public int layer,hash,next;public float time,nextTime,duration,transition,weight,speed;}
         [Serializable] public sealed class Particle {public string path;public float time;public uint seed;public bool playing;}
-        [Serializable] public sealed class Actor {public string id;public float health;public Vector3 position,velocity,angularVelocity;public Quaternion rotation;public List<RunStateFields.Bag> fields;public List<SurvivorEnemyStatus.SavedCombo> combos;public bool camera;public Vector3 cameraPosition;public Quaternion cameraRotation;public float cameraFov;public bool ragdoll;public List<Body> bodies=new();public List<Animation> animations=new();public List<Particle> particles=new();public RunStateFields.Bag boss;public SurvivorAbilities.SavedAbilityVisuals abilities;public List<SurvivorAutoCombat.SavedBolt> bolts;}
+        [Serializable] public sealed class Actor {public string id;public float health;public Vector3 position,velocity,angularVelocity;public Quaternion rotation;public List<RunStateFields.Bag> fields;public List<SurvivorEnemyStatus.SavedCombo> combos;public bool camera;public Vector3 cameraPosition;public Quaternion cameraRotation;public float cameraFov;public bool ragdoll;public string ragdollRig;public List<Body> bodies=new();public List<Animation> animations=new();public List<Particle> particles=new();public RunStateFields.Bag boss;public SurvivorAbilities.SavedAbilityVisuals abilities;public List<SurvivorAutoCombat.SavedBolt> bolts;}
         [Serializable] public sealed class Body {public string path;public Vector3 position,velocity,angular;public Quaternion rotation;}
         [Serializable] public sealed class Shot {public int kind;public string owner,target;public Vector3 position,scale;public Quaternion rotation;public RunStateFields.Bag fields;}
-        [Serializable] public sealed class State {public int version=1;public List<MonsterItemPickup.SavedDrop> loot=new();public List<WorldItemPickup.SavedDrop> items=new();public string random;public List<MiningItemSystem.SavedEffect> effects;public List<Actor> actors=new();public List<Shot> shots=new();public List<MiningWorldCard.SavedCard> cards=new();}
+        [Serializable] public sealed class State {public int version=1;public List<MonsterItemPickup.SavedDrop> loot=new();public List<WorldItemPickup.SavedDrop> items=new();public string random;public List<MiningItemSystem.SavedEffect> effects;public List<Actor> actors=new();public List<Shot> shots=new();public List<MiningWorldCard.SavedCard> cards=new();
+            public List<MiningCardSystem.SavedQueuedUpgrade> queuedUpgrades;
+        }
         public static bool IsRestoring {get;set;}
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]static void Reset()=>IsRestoring=false;
         static string Path(Transform child,Transform root){string path="";while(child&&child!=root){path=child.name+(path.Length>0?"/"+path:"");child=child.parent;}return path;}
@@ -24,7 +26,7 @@ namespace MiningSimulator.Ores
                 if(h.TryGetComponent<Rigidbody>(out var rb)){a.velocity=rb.linearVelocity;a.angularVelocity=rb.angularVelocity;}
                 if(h.TryGetComponent<TopDownSurvivor>(out var view)&&view.viewCamera){a.camera=true;a.cameraPosition=view.viewCamera.transform.position;a.cameraRotation=view.viewCamera.transform.rotation;a.cameraFov=view.viewCamera.fieldOfView;}
                 if(h.TryGetComponent<SurvivorEnemyStatus>(out var status))a.combos=status.CaptureCombos();
-                if(h.TryGetComponent<PlayerRagdoll>(out var ragdoll)&&ragdoll.IsRagdoll){a.ragdoll=true;foreach(var b in ragdoll.Bodies)if(b)a.bodies.Add(new(){path=Path(b.transform,h.transform),position=b.position,rotation=b.rotation,velocity=b.linearVelocity,angular=b.angularVelocity});}
+                if(h.TryGetComponent<PlayerRagdoll>(out var ragdoll)&&ragdoll.IsRagdoll){a.ragdoll=true;a.ragdollRig=ragdoll.PoseRig;foreach(var b in ragdoll.Bodies)if(b)a.bodies.Add(new(){path=Path(b.transform,h.transform),position=b.position,rotation=b.rotation,velocity=b.linearVelocity,angular=b.angularVelocity});}
                 if(h.TryGetComponent<SurvivorAbilities>(out var ability))a.abilities=ability.CaptureRuntimeVisuals();
                 if(h.TryGetComponent<SurvivorAutoCombat>(out var combat))a.bolts=combat.CaptureBolts();
                 foreach(var animator in h.GetComponentsInChildren<Animator>()){if(!animator.runtimeAnimatorController)continue;for(int layer=0;layer<animator.layerCount;layer++){var current=animator.GetCurrentAnimatorStateInfo(layer);var next=animator.GetNextAnimatorStateInfo(layer);var transition=animator.GetAnimatorTransitionInfo(layer);a.animations.Add(new(){path=Path(animator.transform,h.transform),layer=layer,hash=current.fullPathHash,time=current.normalizedTime,next=animator.IsInTransition(layer)?next.fullPathHash:0,nextTime=next.normalizedTime,duration=transition.duration,transition=transition.normalizedTime,weight=animator.GetLayerWeight(layer),speed=animator.speed});}}
@@ -36,6 +38,7 @@ namespace MiningSimulator.Ores
             foreach(var p in UnityEngine.Object.FindObjectsByType<HomingMonsterProjectile>(FindObjectsSortMode.None))Shot(p,1,new[]{"age","travelled","launched","resolved"});
             foreach(var p in UnityEngine.Object.FindObjectsByType<PotionMonsterProjectile>(FindObjectsSortMode.None))Shot(p,2,new[]{"start","age","kind","resolved","yellowDamage"});
             var cardSystem=UnityEngine.Object.FindAnyObjectByType<MiningCardSystem>();
+            if(cardSystem)state.queuedUpgrades=cardSystem.CaptureRuntimeQueue();
             foreach(var c in UnityEngine.Object.FindObjectsByType<MiningWorldCard>(FindObjectsSortMode.None))state.cards.Add(c.CaptureRuntime());
             foreach(var loot in UnityEngine.Object.FindObjectsByType<SurvivorDailyLoot>(FindObjectsSortMode.None))loot.SaveRuntime();
             foreach(var drop in UnityEngine.Object.FindObjectsByType<MonsterItemPickup>(FindObjectsSortMode.None))state.loot.Add(drop.CaptureRuntime());
@@ -59,7 +62,10 @@ namespace MiningSimulator.Ores
                 if(!a.ragdoll)foreach(var saved in a.animations){var t=At(h.transform,saved.path);var animator=t?t.GetComponent<Animator>():null;if(!animator||!animator.runtimeAnimatorController||saved.hash==0||!animator.HasState(saved.layer,saved.hash))continue;animator.speed=saved.speed;animator.SetLayerWeight(saved.layer,saved.weight);animator.Play(saved.hash,saved.layer,saved.time);if(saved.next!=0&&animator.HasState(saved.layer,saved.next))animator.CrossFade(saved.next,saved.duration,saved.layer,saved.nextTime,saved.transition);animator.Update(0);}
                 if(a.ragdoll&&h.TryGetComponent<PlayerRagdoll>(out var ragdoll)){
                     var respawn=h.GetComponent<PlayerRespawn>();if(respawn)typeof(PlayerRespawn).GetMethod("HandleDeath",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic).Invoke(respawn,null);else ragdoll.Activate();
-                    foreach(var b in a.bodies)ragdoll.RestoreBodyPose(b.path,b.position,b.rotation,b.velocity,b.angular);
+                    // Pose samples from another skeleton can tear the skin even when bone names match.
+                    if (a.ragdollRig == ragdoll.PoseRig ||
+                        (string.IsNullOrEmpty(a.ragdollRig) && ragdoll.PoseRig == "Y BotAvatar"))
+                        foreach (var b in a.bodies) ragdoll.RestoreBodyPose(b.path,b.position,b.rotation,b.velocity,b.angular);
                     ragdoll.CompletePoseRestore();
                 }
                 foreach(var saved in a.particles){var t=At(h.transform,saved.path);var particle=t?t.GetComponent<ParticleSystem>():null;if(!particle)continue;particle.Stop(false,ParticleSystemStopBehavior.StopEmittingAndClear);particle.useAutoRandomSeed=false;particle.randomSeed=saved.seed;particle.Simulate(saved.time,false,true,true);if(saved.playing)particle.Play(false);else particle.Pause(false);}
@@ -73,7 +79,7 @@ namespace MiningSimulator.Ores
                 else if(s.kind==2&&m.SpeciesData is PotionMonsterData potion){int kind=s.fields.values.Find(v=>v.name=="kind").integer;var prefab=kind==0?potion.greenPotion:kind==1?potion.redPotion:potion.yellowPotion;if(!prefab)continue;var p=SceneProjectilePool.Rent<PotionMonsterProjectile>(prefab,s.position,s.rotation,player.gameObject.scene,32);p.Launch(m,target,kind);c=p;}
                 if(c){RunStateFields.Restore(c,s.fields,actors);c.transform.localScale=s.scale;c.gameObject.SetActive(true);}
             }
-            var cards=UnityEngine.Object.FindAnyObjectByType<MiningCardSystem>();if(cards){foreach(var c in UnityEngine.Object.FindObjectsByType<MiningWorldCard>(FindObjectsSortMode.None)){c.gameObject.SetActive(false);UnityEngine.Object.Destroy(c.gameObject);}foreach(var c in state.cards)MiningWorldCard.RestoreRuntime(cards,c);}
+            var cards=UnityEngine.Object.FindAnyObjectByType<MiningCardSystem>();if(cards){foreach(var c in UnityEngine.Object.FindObjectsByType<MiningWorldCard>(FindObjectsSortMode.None)){c.gameObject.SetActive(false);UnityEngine.Object.Destroy(c.gameObject);}foreach(var c in state.cards)MiningWorldCard.RestoreRuntime(cards,c);cards.RestoreRuntimeQueue(state.queuedUpgrades);}
             foreach(var drop in UnityEngine.Object.FindObjectsByType<MonsterItemPickup>(FindObjectsSortMode.None)){drop.gameObject.SetActive(false);UnityEngine.Object.Destroy(drop.gameObject);}
             foreach(var drop in UnityEngine.Object.FindObjectsByType<WorldItemPickup>(FindObjectsSortMode.None)){drop.gameObject.SetActive(false);UnityEngine.Object.Destroy(drop.gameObject);}
             foreach(var drop in state.loot)MonsterItemPickup.RestoreRuntime(drop,player);

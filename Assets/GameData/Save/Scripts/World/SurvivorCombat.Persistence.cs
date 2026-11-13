@@ -29,6 +29,7 @@ namespace GameData.Player.Script
             foreach(var a in attackers)s.attackers.Add(new(){id=RunStateFields.Id(a.Key),age=Time.time-a.Value});return s;
         }
         public void RestoreRuntimeVisuals(SavedAbilityVisuals s,Dictionary<string,CharacterHealth> actors){
+            RestoreBombVisuals();
             if(s==null)return;swordState=s.sword??new SwordState();RestoreSwordHits(actors);RenderSword();attackers.Clear();foreach(var a in s.attackers)if(a.id!=null&&actors.TryGetValue(a.id,out var h))attackers[h]=Time.time-a.age;
             SurvivorLoopVfx.Set(ref auraEffect,Settings.uncommon.aura.visual,transform,Level(SurvivorUpgradeId.Aura)>0,AuraRadius/Mathf.Max(.01f,Settings.uncommon.aura.visual.referenceRadius));
             SurvivorLoopVfx.Set(ref shieldEffect,Settings.uncommon.shield.visual,transform,shield>0||Invulnerable);

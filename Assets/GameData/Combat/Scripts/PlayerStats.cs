@@ -31,7 +31,15 @@ namespace MiningSimulator.Ores
         private bool HasTitan=>UpgradeLevel(SurvivorUpgradeId.TitanBlessing)>0;
         public float TitanFlatHealth=>HasTitan?AbilityData.epic.titanBlessing.flatHealth.At(UpgradeLevel(SurvivorUpgradeId.TitanBlessing)):0;
         public float BodySizeMultiplier=>1+(HasTitan?AbilityData.epic.titanBlessing.sizePercent*.01f:0);
-        private void ApplyBodySize(){float size=BodySizeMultiplier;if(Mathf.Approximately(size,appliedBodySize))return;transform.localScale=authoredBodyScale*size;appliedBodySize=size;}
+        internal void ApplyBodySize()
+        {
+            float size = BodySizeMultiplier;
+            if (Mathf.Approximately(size, appliedBodySize)) return;
+            // Scaling the player root would move the active ragdoll's physics bodies.
+            if (TryGetComponent<PlayerRagdoll>(out var ragdoll) && ragdoll.IsRagdoll) return;
+            transform.localScale = authoredBodyScale * size;
+            appliedBodySize = size;
+        }
         public float MovementMultiplier=>1f+UpgradeBonus(SurvivorUpgradeId.MoveSpeed)*.01f;
         public float WalkSpeed=>(coreData?coreData.walkSpeed:3f)*MovementMultiplier+(itemEffects?Mathf.Max(0,itemEffects.PlayerMoveSpeedBonus):0);
         public float RunSpeed=>WalkSpeed+3f;

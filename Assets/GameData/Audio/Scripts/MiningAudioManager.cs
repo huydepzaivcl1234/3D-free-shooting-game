@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace MiningSimulator.Ores
 {
-    /// <summary>Owns background music and event-driven mining SFX playback.</summary>
+    /// <summary>Manages music, ambience and sound effects for the scene.</summary>
     [DisallowMultipleComponent]
     public sealed partial class MiningAudioManager : MonoBehaviour
     {
@@ -35,7 +35,6 @@ namespace MiningSimulator.Ores
         private float musicVolume = 1f;
         private float sfxVolume = 1f;
         private AudioClip requestedMusic;
-        private float nextAllowedMiningSfxTime;
         private bool shopThemeActive;
         private bool mainMenuMusicActive;
         private bool ambienceFadedForPeriodChange;
@@ -90,15 +89,12 @@ namespace MiningSimulator.Ores
         {
             LoadVolumeSettings();
             ResolveSources();
-            ConfigureSources();
-            PreloadAllAudioClips();
+            PreloadConfiguredClips();
             FindReferencesIfMissing();
         }
 
         private void FindReferencesIfMissing()
         {
-
-
 
             if (upgradeSystem == null)
             {
@@ -134,56 +130,39 @@ namespace MiningSimulator.Ores
         private void OnEnable()
         {
 
-
-
-
-
-
             if (upgradeSystem != null)
             {
-                upgradeSystem.UpgradePurchased -= HandleUpgradePurchased;
                 upgradeSystem.UpgradePurchased += HandleUpgradePurchased;
             }
 
-
-
             if (rebirthSystem != null)
             {
-                rebirthSystem.RebirthCompleted -= HandleRebirthCompleted;
                 rebirthSystem.RebirthCompleted += HandleRebirthCompleted;
             }
 
             if (rebirthPanel != null)
             {
-                rebirthPanel.PanelOpened -= HandlePanelOpened;
                 rebirthPanel.PanelOpened += HandlePanelOpened;
-                rebirthPanel.PanelClosed -= HandlePanelClosed;
                 rebirthPanel.PanelClosed += HandlePanelClosed;
             }
 
             if (audioSettingsPanel != null)
             {
-                audioSettingsPanel.PanelOpened -= HandlePanelOpened;
                 audioSettingsPanel.PanelOpened += HandlePanelOpened;
-                audioSettingsPanel.PanelClosed -= HandlePanelClosed;
                 audioSettingsPanel.PanelClosed += HandlePanelClosed;
             }
 
             if (giftBoxWheelPanel != null)
             {
-                giftBoxWheelPanel.WheelSpinStarted -= HandleWheelSpinStarted;
                 giftBoxWheelPanel.WheelSpinStarted += HandleWheelSpinStarted;
-                giftBoxWheelPanel.RewardGranted -= HandleWheelRewardGranted;
                 giftBoxWheelPanel.RewardGranted += HandleWheelRewardGranted;
             }
 
             if (dayNightSystem != null)
             {
-                dayNightSystem.PeriodChanged -= HandlePeriodChanged;
                 dayNightSystem.PeriodChanged += HandlePeriodChanged;
             }
 
-            ResolveSources();
             ConfigureSources();
             // One enable-time scan covers authored UI/player/monster channels. Runtime
             // channels register when created; never scan the scene each frame.
@@ -237,17 +216,10 @@ namespace MiningSimulator.Ores
             StopWorldAmbienceSwitch();
             StopAmbiencePlaylist();
 
-
-
-
-
-
             if (upgradeSystem != null)
             {
                 upgradeSystem.UpgradePurchased -= HandleUpgradePurchased;
             }
-
-
 
             if (rebirthSystem != null)
             {
@@ -355,13 +327,8 @@ namespace MiningSimulator.Ores
 
         public void PlaySfx(AudioClip clip, float volumeMultiplier)
         {
-            if (audioData == null || sfxSource == null || sfxMuted || !EnsureClipLoaded(clip))
-            {
-                return;
-            }
-
-            sfxSource.pitch = Random.Range(audioData.MinimumPitch, audioData.MaximumPitch);
-            sfxSource.PlayOneShot(clip, audioData.SfxVolume * Mathf.Max(0f, volumeMultiplier));
+            if (audioData == null) return;
+            PlaySfxWithPitch(clip, volumeMultiplier, Random.Range(audioData.MinimumPitch, audioData.MaximumPitch));
         }
 
         public void PlayButtonSfx()
@@ -388,42 +355,11 @@ namespace MiningSimulator.Ores
             }
         }
 
-
-
-
-
-
-
-
-
         private void StopWorldAmbienceSwitch()
         {
             if (worldAmbienceTransition == null) return;
             StopCoroutine(worldAmbienceTransition);
             worldAmbienceTransition = null;
-        }
-
-        public void PlayMiningImpactSfx(bool oreBroken)
-        {
-            if (audioData == null)
-            {
-                return;
-            }
-
-            if (oreBroken)
-            {
-                PlaySfx(audioData.OreBreakSfx);
-                return;
-            }
-
-            float now = Time.unscaledTime;
-            if (now < nextAllowedMiningSfxTime)
-            {
-                return;
-            }
-
-            nextAllowedMiningSfxTime = now + audioData.MiningSfxCooldown;
-            PlaySfx(audioData.OreHitSfx);
         }
 
         private void SynchronizeMainMenuMusic()

@@ -28,6 +28,10 @@ namespace MiningSimulator.Ores
         [Header("Crowd physics")]
         [Tooltip("Replace ordinary enemy-to-enemy motor contacts with local spatial separation. Walls, player collision, bosses and attack animation remain active.")]
         public bool softCrowdSeparation=true;
+        [Tooltip("Extra ground-detail cells sampled on demand per frame. Zero uses the navigation grid heights only.")]
+        [Range(0, 64)] public int crowdGroundProbeCellsPerFrame = 8;
+        [Tooltip("Maximum height in metres an ordinary GPU crowd enemy can climb on nearby enemies. Zero disables climbing.")]
+        [Min(0)] public float crowdMaximumClimbHeight = 1.8f;
         [Min(0)] public float crowdSeparationStrength=12;
         [Min(0)] public float crowdPadding=.03f;
         private static GameplayPerformanceData current;
