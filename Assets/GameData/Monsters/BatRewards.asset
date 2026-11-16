@@ -16,7 +16,7 @@ MonoBehaviour:
   minimumPlayerLevelToSpawn: 7
   minimumSpawnDay: 15
   combat:
-    maxHealth: 25
+    maxHealth: 15
     regenAmount: 0
     regenInterval: 5
     attackSpeed: 2
@@ -29,7 +29,7 @@ MonoBehaviour:
     trackingEndFraction: 0.85
     chaseTurnSpeed: 720
     animationBlendSeconds: 0.08
-    moveSpeed: 5.5
+    moveSpeed: 3
     detectionRange: 6
     attackRange: 1.3
     attackArc: 60
@@ -120,7 +120,7 @@ MonoBehaviour:
   goldGrowthPerLevel: 0.75
   randomStatMultiplier: {x: 0.9, y: 1.1}
   experience: 50
-  gold: 60
+  gold: 40
   armor: 0
   magicResistance: 0
   armorPerLevel: 1

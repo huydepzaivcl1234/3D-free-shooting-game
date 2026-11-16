@@ -32,7 +32,7 @@ namespace MiningSimulator.Ores
     }
     // Retain the script identity/GUID so existing scenes keep their spawn table.
     // This is a mining encounter spawner, not a bounded spawn zone anymore.
-    [AddComponentMenu("Mining Simulator/Mining Monster Spawner")]
+    [AddComponentMenu("Survivor/Monster Spawner")]
     public sealed partial class MonsterSpawnZone : MonoBehaviour
     {
         private static readonly HashSet<MonsterSpawnZone> activeZones = new();
@@ -51,7 +51,6 @@ namespace MiningSimulator.Ores
                 if (!zone.IsCurrentPeriodCleared) return false;
             }
             if (!found) return false;
-            if(SurvivorCrowd.Current&&SurvivorCrowd.Current.AliveCount>0)return false;
             // Include summoned/independently spawned enemies, not only the wave budget.
             foreach (var monster in MushroomMonster.Monsters)
                 if (monster && monster.isActiveAndEnabled && !monster.IsDespawning &&
@@ -64,7 +63,6 @@ namespace MiningSimulator.Ores
             get
             {
                 if (!started || dayNight == null || scheduledDay != dayNight.DayNumber) return false;
-                if(SurvivorCrowd.Current&&SurvivorCrowd.Current.CountFor(this)>0)return false;
                 if (godBoss && godBoss.Health && godBoss.Health.Health > 0f) return false;
                 foreach (var monster in alive)
                     if (monster && monster.isActiveAndEnabled && !monster.IsDespawning &&
@@ -188,7 +186,7 @@ namespace MiningSimulator.Ores
                 return true;
             }
         }
-        public int AliveCount => alive.Count+(SurvivorCrowd.Current?SurvivorCrowd.Current.CountFor(this):0);
+        public int AliveCount => alive.Count;
         public DayNightSystem DayNight => dayNight;
         public bool HasForecastBoss
         {
@@ -208,7 +206,7 @@ namespace MiningSimulator.Ores
             foreach (var monster in alive)
                 if (monster != null && !monster.IsDespawning && monster.Health != null && monster.Health.Health > 0f &&
                     liveSpecies.TryGetValue(monster, out var species) && species == entry) count++;
-            return count+(SurvivorCrowd.Current?SurvivorCrowd.Current.CountFor(this,entry):0);
+            return count;
         }
         private bool TryGetMineSurface(out NavMeshSurface surface)
         {
@@ -339,7 +337,16 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
             CheckMonsterUnlocks();
             if (dayNight != null && scheduledDay != dayNight.DayNumber) BuildDailySchedule();
         }
-        public void GrantRewards(MonsterRewardData data, Vector3 origin, float goldMultiplier = 1, float experienceMultiplier = 1, int monsterLevel=1)
+        internal CharacterHealth ResolveSupportKillPlayer(GameObject source)
+        {
+            if (!source) return null;
+            var controller = source.GetComponentInParent<GameData.Player.Script.PlayerController1>();
+            if (controller) return controller.GetComponent<CharacterHealth>();
+            return MonsterKillCredit.IsTowerOwned(source) ? player : null;
+        }
+
+        public void GrantRewards(MonsterRewardData data, Vector3 origin, float goldMultiplier = 1,
+            float experienceMultiplier = 1, int monsterLevel = 1, CharacterHealth creditedPlayer = null)
         {
             if (data == null) return;
             var rewards=MonsterLootSettings.RewardsFor(data);
@@ -350,8 +357,11 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
                 xp = upgradeSystem.CalculatePlayerExperienceReward(xp);
                 money = upgradeSystem.CalculateMonsterMoneyReward(money);
             }
-            // AddExperience applies GameManager PlayerXpMultiplier exactly once.
-            if (playerStats != null) playerStats.AddExperience(xp);
+            if (playerStats != null && xp > 0f)
+            {
+                if (Application.isPlaying && PlayerHuntMode) XPGemManager.For(playerStats).Drop(origin, xp);
+                else playerStats.AddExperience(xp);
+            }
             if (wallet != null)
             {
                 float previousMoney = wallet.CurrentMoney;
@@ -362,17 +372,86 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
             }
             if (!inventory || !inventory.isActiveAndEnabled) return;
             var loot = MonsterLootSettings.DropsFor(data);
-            if (loot.drops == null) return;
+            int supportLevel = PlayerSupportUpgrades.For(creditedPlayer)?.Level(SupportUpgradeId.ItemDrop) ?? 0;
+            float noDropProbability = 1f;
+            float totalWeight = 0f;
+            bool dropped = false;
+            if (loot.drops != null)
+            {
+                foreach (var drop in loot.drops)
+                {
+                    float probability = ItemDropProbability(drop);
+                    if (probability <= 0f) continue;
+                    if (supportLevel > 0)
+                    {
+                        noDropProbability *= 1f - probability;
+                        totalWeight += probability;
+                    }
+                    if (probability < 1f && UnityEngine.Random.value >= probability) continue;
+                    SpawnItemDrop(loot, drop, origin);
+                    dropped = true;
+                }
+            }
+
+            if (dropped || supportLevel <= 0) return;
+            // Apply the stated percentage points to the chance of at least one item per kill.
+            float bonus = .01f + .0025f * (supportLevel - 1);
+            if (UnityEngine.Random.value * noDropProbability >= bonus) return;
+            if (totalWeight <= 0f)
+            {
+                loot = MonsterLootSettings.Current ? MonsterLootSettings.Current.shared : null;
+                if (!loot || loot.drops == null) return;
+                foreach (var drop in loot.drops) totalWeight += ItemDropProbability(drop);
+            }
+
+            float roll = UnityEngine.Random.value * totalWeight;
+            MonsterItemDrop lastValid = null;
             foreach (var drop in loot.drops)
             {
-                if (drop == null || drop.item == null || drop.chancePercent <= 0) continue;
-                if (drop.chancePercent < 100 && UnityEngine.Random.value >= drop.chancePercent / 100) continue;
-                int min = Mathf.Clamp(drop.minimumAmount, 1, 10000);
-                int max = Mathf.Clamp(drop.maximumAmount, min, 10000);
-                int count = UnityEngine.Random.Range(min, max + 1);
-                MonsterItemPickup.Spawn(loot, drop, count, origin, player, inventory,
-                    groundLayers, audioManager);
+                float probability = ItemDropProbability(drop);
+                if (probability <= 0f) continue;
+                lastValid = drop;
+                roll -= probability;
+                if (roll < 0f) break;
             }
+            if (lastValid != null) SpawnItemDrop(loot, lastValid, origin);
+        }
+
+        private static float ItemDropProbability(MonsterItemDrop drop) =>
+            drop != null && drop.item ? Mathf.Clamp01(drop.chancePercent * .01f) : 0f;
+
+        private void SpawnItemDrop(MonsterRewardData loot, MonsterItemDrop drop, Vector3 origin)
+        {
+            int min = Mathf.Clamp(drop.minimumAmount, 1, 10000);
+            int max = Mathf.Clamp(drop.maximumAmount, min, 10000);
+            int count = UnityEngine.Random.Range(min, max + 1);
+            MonsterItemPickup.Spawn(loot, drop, count, origin, player, inventory, groundLayers, audioManager);
+        }
+
+        private readonly List<MushroomMonster> supportAllies = new();
+
+        internal void TryReviveSupportAlly(MushroomMonster fallen, CharacterHealth creditedPlayer)
+        {
+            if (!creditedPlayer || !liveSpecies.TryGetValue(fallen, out var entry) || !entry.prefab) return;
+            int level = PlayerSupportUpgrades.For(creditedPlayer)?.Level(SupportUpgradeId.ReviveAlly) ?? 0;
+            if (level <= 0 || UnityEngine.Random.value >= .10f) return;
+
+            supportAllies.RemoveAll(RemoveInactiveMonster);
+            var ally = Instantiate(entry.prefab, fallen.transform.position, fallen.transform.rotation, transform);
+            ally.transform.localScale = fallen.transform.localScale;
+            ally.InitializeSupportAlly(this, creditedPlayer, fallen, level);
+            supportAllies.Add(ally);
+        }
+
+        private void ClearSupportAllies()
+        {
+            foreach (var ally in supportAllies)
+            {
+                if (!ally) continue;
+                ally.gameObject.SetActive(false);
+                Destroy(ally.gameObject);
+            }
+            supportAllies.Clear();
         }
         private void Update()
         {
@@ -393,7 +472,7 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
             AnnounceDailyEvent();
             if (requireTreasureChest && (TreasureChest.Active == null || !TreasureChest.Active.IsAlive)) return;
             TickNightThieves();
-            TickNightSkullclaw();
+            if (StagePhase == null) TickNightSkullclaw();
             if(!periodRewarded&&IsPeriodClearForReward){periodRewarded=true;PeriodCleared?.Invoke(lastKillPoint);}
             TickTimedSpawns(Time.deltaTime);
         }
@@ -560,8 +639,8 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
         private void OnDisable()
         {
             activeZones.Remove(this);
+            ClearSupportAllies();
             questNpcEncounter?.Stop();
-            if(SurvivorCrowd.Current)SurvivorCrowd.Current.RemoveZone(this);
             // The spawned monsters are owned by this spawner. Destroy without combat
             // rewards so no invisible Ground enemies survive the world switch.
             foreach (MushroomMonster monster in alive)
@@ -600,19 +679,14 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
                 if (overtime ? !IsOffscreen(ground.point) : !IsValidSpawnDistance(ground.point)) continue;
                 if (player != null && (player.transform.position - ground.point).sqrMagnitude <
                     PlayerClearance * PlayerClearance) continue;
-                if(!overtime&&!boss&&!invasion&&PlayerHuntMode&&SurvivorCrowd.Current&&SurvivorCrowd.Current.CanHandle(prefab))
-                {
-                    if(!SurvivorCrowd.Current.TrySpawn(this,entry,ground.point))continue;
-                    periodSpawns++;
-                    GameData.Player.Script.SurvivorMonsterDiscovery.AnnouncePrefab(prefab,entry);
-                    ForecastChanged?.Invoke();return true;
-                }
                 var capsule = prefab.GetComponent<CharacterController>();
                 if (capsule == null) continue;
                 Vector3 scale = Vector3.Scale(prefab.transform.lossyScale, transform.lossyScale);
                 scale *= bossScale;
-                float radius = capsule.radius * Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.z)) * 0.9f;
-                float height = Mathf.Max(radius * 2, capsule.height * Mathf.Abs(scale.y));
+                float radius = prefab.EnvironmentRadius(capsule) * Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.z));
+                float height = Mathf.Max(radius * 2, prefab.EnvironmentHeight(capsule) * Mathf.Abs(scale.y));
+                var grid = WorldNavigationGrid.Instance;
+                if (grid && !grid.IsSpawnPlacementClear(ground.point, radius, height)) continue;
                 Vector3 bottom = ground.point + Vector3.up * (radius + 0.1f);
                 Vector3 top = ground.point + Vector3.up * Mathf.Max(radius + 0.1f, height - radius);
                 if (Physics.CheckCapsule(bottom, top, radius, ~LayerMask.GetMask("Ragdoll"), QueryTriggerInteraction.Ignore)) continue;
@@ -630,6 +704,8 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
                     instance.ApplyEncounterModifiers(1, 1 + minutes * spawnSettings.overtimeDamagePercentPerMinute * .01f,
                         1 + minutes * spawnSettings.overtimeHealthPercentPerMinute * .01f);
                 }
+                if (regular && !boss && !invasion && StagePhase != null)
+                    instance.ApplyEncounterModifiers(1, 1, StageHealthMultiplier);
                 if (invasion && dailyEvents != null)
                     instance.ApplyEncounterModifiers(extraScale, 1f + Mathf.Max(0, dailyEvents.bossExtraDamagePercent) * 0.01f,
                         1f + Mathf.Max(0, dailyEvents.bossExtraHealthPercent) * .01f);
@@ -646,6 +722,7 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
         private bool TryFindGround(Vector3 position, out RaycastHit ground)
         {
             var grid=WorldNavigationGrid.Instance;
+            if (grid && grid.IsPortalSpawnExcluded(position)) { ground = default; return false; }
             // All spawn routes, including God's summons, must stay inside the playable navigation area.
             if(PlayerHuntMode && grid && grid.HasBaked){
                 if(!grid.TryGetGroundPoint(position,out var support)){ground=default;return false;}
@@ -654,7 +731,7 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
             }
             // Use authored ground colliders; actors and steep surfaces cannot support a spawn.
             int count = Physics.RaycastNonAlloc(position + Vector3.up * 30f,
-                Vector3.down, groundHits, 60f, groundLayers,
+                Vector3.down, groundHits, 60f, groundLayers.value | 1,
                 QueryTriggerInteraction.Ignore);
             int best = -1;
             float closest = float.PositiveInfinity;
@@ -662,7 +739,7 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
             {
                 RaycastHit hit = groundHits[i];
                 Collider surface = hit.collider;
-                if (surface == null || !GroundSurfaceLayers.Contains(surface.gameObject.layer) || hit.normal.y < 0.7f ||
+                if (surface == null || !WorldNavigationGrid.IsLevelSupport(surface) || hit.normal.y < 0.7f ||
                     surface.GetComponentInParent<CharacterHealth>() != null ||
                     surface is CharacterController) continue;
 
@@ -682,7 +759,7 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
                 foreach (var monster in zone.alive)
                     if (monster != null && !monster.IsDespawning && monster.Health != null && monster.Health.Health > 0f)
                         count++;
-            return count+(SurvivorCrowd.Current?SurvivorCrowd.Current.AliveCount:0);
+            return count;
         }
     
 
@@ -699,8 +776,8 @@ public static void ResetLoadedEncounters()
 
 public void ResetEncounter()
         {
+            ClearSupportAllies();
             if(alune)alune.Clear();
-            if(SurvivorCrowd.Current)SurvivorCrowd.Current.RemoveZone(this);
             spawnElapsedSeconds=0;spawnCredit=0;overtimeCredit=0;nextTimedRetry=0;spawnKills=0;initialMonsterSpawned=false;
             lastKnownSpawnDay=SpawnDayNumber;
             ResetGodEncounter();

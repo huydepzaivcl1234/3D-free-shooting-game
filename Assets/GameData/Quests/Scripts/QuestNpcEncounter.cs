@@ -53,12 +53,13 @@ namespace MiningSimulator.Ores
         private QuestNpcAnchor questNpcAnchor;
         private GameObject questNpc;
         private Conversation questConversation;
+        private readonly HashSet<int> offeredQuestIds = new();
         private SurvivorQuestDialogue questDialogue;
         private AnimationRunMana questStamina;
         private InputManager questInput;
         private Rigidbody questBody;
         private MiningCardSystem questCards;
-        private float questPlacementRetry, questNextTrackerUpdate;
+        private float questPlacementRetry;
         private Vector3 questPreviousPosition;
         private bool questPositionSampled;
         private readonly List<Vector3> questPath = new();
@@ -108,6 +109,7 @@ namespace MiningSimulator.Ores
             questDialogue?.Dispose();
             questDialogue = null;
             questConversation = null;
+            offeredQuestIds.Clear();
             if (questNpc)
             {
                 questNpc.SetActive(false);
@@ -121,7 +123,7 @@ namespace MiningSimulator.Ores
         {
             Stop();
             questEncounter = null;
-            questPlacementRetry = questNextTrackerUpdate = 0;
+            questPlacementRetry = 0;
             Start();
         }
 
@@ -140,8 +142,7 @@ namespace MiningSimulator.Ores
             if (player.Health <= 0)
             {
                 questDialogue?.Close();
-                questDialogue?.ShowPrompt(false);
-                questDialogue?.SetTracker("");
+                questDialogue?.UpdateOverhead(false, false, false, "");
                 questPositionSampled = false;
                 return;
             }
@@ -172,7 +173,6 @@ namespace MiningSimulator.Ores
                 rewarded |= TryCompleteQuest(true, position);
                 if (rewarded)
                 {
-                    questNextTrackerUpdate = 0;
                     saveWorld();
                     GameSave.Save();
                 }
@@ -181,18 +181,13 @@ namespace MiningSimulator.Ores
 
             Vector3 toward = position - questNpc.transform.position;
             bool near = toward.sqrMagnitude <= settings.questTalkDistance * settings.questTalkDistance;
-            questDialogue?.ShowPrompt(playing && near);
-            if (!playing) questDialogue?.SetTracker("");
-            else if (Time.time >= questNextTrackerUpdate)
-            {
-                questNextTrackerUpdate = Time.time + .15f;
-                questDialogue?.SetTracker(QuestTracker());
-            }
+            bool available = HasAvailableQuest();
+            questDialogue?.UpdateOverhead(playing, near, available, available || !playing ? "" : NoQuestMessage());
             if (!playing || !near) return;
             toward.y = 0;
             if (toward.sqrMagnitude > .001f)
                 questNpc.transform.rotation = Quaternion.LookRotation(toward);
-            if (Keyboard.current?.eKey.wasPressedThisFrame == true && questDialogue != null)
+            if (available && Keyboard.current?.eKey.wasPressedThisFrame == true && questDialogue != null)
             {
                 OpenQuestConversation();
             }
@@ -259,6 +254,8 @@ namespace MiningSimulator.Ores
             }
 
             questDialogue ??= new SurvivorQuestDialogue(uiCoordinator, audioManager, settings);
+            questDialogue.AttachOverhead(questNpc.transform);
+            ReadOfferedQuestIds();
         }
 
         private static bool IsBuiltIn(int id) => id >= 0 && id <= (int)QuestObjective.HardWalk;
@@ -316,7 +313,6 @@ namespace MiningSimulator.Ores
             if (IsHardQuest(objective)) questEncounter.hard = quest;
             else questEncounter.easy = quest;
             questDialogue.Close();
-            questNextTrackerUpdate = 0;
             saveWorld();
             GameSave.Save();
         }
@@ -331,16 +327,7 @@ namespace MiningSimulator.Ores
 
             Transform playerTransform = player.transform;
             Vector3 side = playerTransform.right * (hard ? -1.6f : 1.6f);
-            Vector3 landing = position;
-            var grid = WorldNavigationGrid.Instance;
-            for (int attempt = 0; attempt < 8; attempt++)
-            {
-                Vector3 offset = Quaternion.AngleAxis(45f * attempt, Vector3.up) * side;
-                if (!tryFindGround(position + offset, out var ground) ||
-                    (grid && grid.HasBaked && !grid.IsCapsulePlacementClear(ground.point, .25f, .7f))) continue;
-                landing = ground.point;
-                break;
-            }
+            Vector3 landing = QuestRewardLanding(position, side);
 
             var animator = player.GetComponentInChildren<Animator>();
             var head = animator && animator.isHuman && animator.avatar && animator.avatar.isValid
@@ -353,8 +340,36 @@ namespace MiningSimulator.Ores
             else questEncounter.completedQuestIds.Add(quest.objective);
             if (hard) questEncounter.hard = null;
             else questEncounter.easy = null;
+            TryAwardBonusReward(launch, position, -side);
             questDialogue?.ShowCompletion(QuestStatus(quest));
             return true;
+        }
+
+        private Vector3 QuestRewardLanding(Vector3 position, Vector3 side)
+        {
+            var grid = WorldNavigationGrid.Instance;
+            for (int attempt = 0; attempt < 8; attempt++)
+            {
+                Vector3 offset = Quaternion.AngleAxis(45f * attempt, Vector3.up) * side;
+                if (tryFindGround(position + offset, out var ground) &&
+                    (!grid || !grid.HasBaked || grid.IsCapsulePlacementClear(ground.point, .25f, .7f)))
+                    return ground.point;
+            }
+            return position;
+        }
+
+        private void TryAwardBonusReward(Vector3 launch, Vector3 position, Vector3 side)
+        {
+            var support = PlayerSupportUpgrades.For(player);
+            int level = support?.Level(SupportUpgradeId.QuestReward) ?? 0;
+            if (level <= 0 || UnityEngine.Random.value >= (.05f + .0025f * (level - 1))) return;
+
+            if (UnityEngine.Random.value < .5f && support.TryGrantRandom(out _)) return;
+            bool ability = questCards.CanOfferAbilities;
+            Vector3 landing = QuestRewardLanding(position, side);
+            if (!questCards.TryDropQuestReward(ability, launch + side * .25f, landing) &&
+                (!ability || !questCards.TryDropQuestReward(false, launch + side * .25f, landing)))
+                support.TryGrantRandom(out _);
         }
 
         private void AddQuestProgress(QuestGoal goal, float amount, MonsterRewardData species = null)
@@ -420,68 +435,68 @@ namespace MiningSimulator.Ores
             return definition != null ? GraphText(definition.label ?? "") : QuestLabel((QuestObjective)id);
         }
 
-        private string QuestTracker()
+        internal string QuestTracker()
         {
+            if (!running || questEncounter == null) return "";
             var easy = questEncounter.easy;
             var hard = questEncounter.hard;
             if (easy == null) return hard == null ? "" : QuestStatus(hard);
             return hard == null ? QuestStatus(easy) : QuestStatus(easy) + "\n" + QuestStatus(hard);
         }
 
+        private void ReadOfferedQuestIds()
+        {
+            offeredQuestIds.Clear();
+            var root = settings.questConversation ? settings.questConversation.Deserialize()?.Root : null;
+            if (root == null) return;
+            var pending = new Stack<ConversationNode>();
+            var visited = new HashSet<ConversationNode>();
+            pending.Push(root);
+            while (pending.Count > 0)
+            {
+                var node = pending.Pop();
+                if (node == null || !visited.Add(node)) continue;
+                if (node is OptionNode option && QuestId(option) is int id && id >= 0)
+                    offeredQuestIds.Add(id);
+                foreach (var connection in node.Connections)
+                {
+                    if (connection is SpeechConnection speech) pending.Push(speech.SpeechNode);
+                    else if (connection is OptionConnection choice) pending.Push(choice.OptionNode);
+                }
+            }
+        }
+
+        private bool HasAvailableQuest()
+        {
+            foreach (int id in offeredQuestIds)
+                if (IsQuestAvailable(id)) return true;
+            return false;
+        }
+
+        private string NoQuestMessage() => string.IsNullOrWhiteSpace(settings.noAvailableQuestDialogue)
+            ? L("QUEST_NONE_AVAILABLE", "No new quests yet!")
+            : GraphText(settings.noAvailableQuestDialogue);
+
         private void OpenQuestConversation()
         {
-            var source = settings.questConversation;
-            if (!source) return;
-            questConversation = source.Deserialize();
+            if (!HasAvailableQuest() || !settings.questConversation) return;
+            questConversation = settings.questConversation.Deserialize();
             if (questConversation?.Root == null) return;
 
+            for (int id = 0; id <= (int)QuestObjective.HardWalk; id++)
+                questConversation.SetBool(((QuestObjective)id).ToString(), offeredQuestIds.Contains(id) && IsQuestAvailable(id), out _);
+
             bool easy = false, hard = false;
-            foreach (QuestObjective objective in Enum.GetValues(typeof(QuestObjective)))
+            foreach (int id in offeredQuestIds)
             {
-                bool available = IsQuestAvailable((int)objective);
-                questConversation.SetBool(objective.ToString(), available, out _);
-                if (IsHardQuest((int)objective)) hard |= available;
-                else easy |= available;
-            }
-            if (settings.additionalQuests.Count > 0)
-            {
-                var pending = new Stack<ConversationNode>();
-                var visited = new HashSet<ConversationNode>();
-                pending.Push(questConversation.Root);
-                while (pending.Count > 0)
-                {
-                    var node = pending.Pop();
-                    if (node == null || !visited.Add(node)) continue;
-                    if (node is OptionNode option && QuestId(option) >= 0)
-                    {
-                        int id = QuestId(option);
-                        if (!IsBuiltIn(id) && IsQuestAvailable(id))
-                        {
-                            if (IsHardQuest(id)) hard = true;
-                            else easy = true;
-                        }
-                        continue;
-                    }
-                    foreach (var connection in node.Connections)
-                    {
-                        if (connection is SpeechConnection speech) pending.Push(speech.SpeechNode);
-                        else if (connection is OptionConnection choice) pending.Push(choice.OptionNode);
-                    }
-                }
+                if (!IsQuestAvailable(id)) continue;
+                if (IsHardQuest(id)) hard = true;
+                else easy = true;
             }
             questConversation.SetBool("EasyAvailable", easy, out _);
             questConversation.SetBool("HardAvailable", hard, out _);
             questDialogue.Open(questNpc.transform, player.GetComponent<TopDownSurvivor>());
-            if (easy || hard)
-            {
-                ShowQuestSpeech(questConversation.Root);
-                return;
-            }
-
-            string message = string.IsNullOrWhiteSpace(settings.noAvailableQuestDialogue)
-                ? L("QUEST_NONE_AVAILABLE", "I don't have any quests for you right now.")
-                : GraphText(settings.noAvailableQuestDialogue);
-            questDialogue.Display(NpcName, message, questConversation.Root.TMPFont, questDialogue.Close);
+            ShowQuestSpeech(questConversation.Root);
         }
 
         private void ShowQuestSpeech(SpeechNode speech)

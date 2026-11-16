@@ -50,7 +50,7 @@ namespace MiningSimulator.Ores
         public Sprite questDialogueFrame;
         [Min(0)] public float questMinDistance = 15f;
         [Min(0)] public float questMaxDistance = 20f;
-        [Min(.5f)] public float questTalkDistance = 3f;
+        [Min(.5f)] public float questTalkDistance = 3.5f;
         [Min(1)] public float questScalingSeconds = 180f;
         [Header("Easy quests")]
         public MonsterRewardData questMushroom;

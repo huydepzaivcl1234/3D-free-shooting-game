@@ -16,7 +16,7 @@ MonoBehaviour:
   lootAndRewards: {fileID: 11400000, guid: b6e86d824c04f9f459af0b9f05fdc6f7, type: 2}
   everyDays: 20
   minimumPlayerLevel: 0
-  shrinePrefab: {fileID: 0}
+  shrinePrefab: {fileID: 1424655641805595204, guid: 90f8d671bf75230439ef1a5ce0b69342, type: 3}
   shrineMinDistance: 10
   shrineMaxDistance: 17
   shrineInteractionRange: 3

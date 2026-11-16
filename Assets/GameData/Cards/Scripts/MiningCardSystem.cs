@@ -32,6 +32,7 @@ namespace MiningSimulator.Ores
         private bool blueChoice, abilityChoice;
         public int QueuedBasicChoices=>PendingStatUpgrades;
         public void GrantBasicChoices(int count){for(int i=0;i<Mathf.Clamp(count,0,10);i++)Collect(data.tiers[0]);}
+        internal SurvivorUpgradeData RunUpgradeData => data ? data.survivorUpgrades : null;
         public bool CanOfferAbilities=>player&&data&&data.survivorUpgrades&&data.survivorUpgrades.HasEligible(player,true);
         private readonly GameData.Player.Script.GunSpecialChoice[] blueOptions=new GameData.Player.Script.GunSpecialChoice[3];
         private GameData.Player.Script.GunSpecialUpgrades gunSpecials;
@@ -144,7 +145,9 @@ namespace MiningSimulator.Ores
         }
         public bool TryDrop(Vector3 position, bool boss, MonsterRewardData species=null)
         {
-            if(!data||data.tiers==null||data.tiers.Length==0)return false;
+            if (!data) return false;
+            if (boss) return Spawn(data.abilityCard, position) != null;
+            if (data.tiers == null || data.tiers.Length == 0) return false;
             bool basic=!data.survivorUpgrades||data.survivorUpgrades.HasEligible(player,false);
             bool ability=CanOfferAbilities&&data.abilityCard!=null&&data.abilityCard.prefab;
             var chance=DropChances(boss,species);if(!ability){chance.x+=chance.y;chance.y=0;}if(!basic){chance.y+=chance.x;chance.x=0;}float sample=Random.value*100;

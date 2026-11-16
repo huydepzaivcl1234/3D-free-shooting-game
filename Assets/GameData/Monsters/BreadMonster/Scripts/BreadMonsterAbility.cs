@@ -21,18 +21,8 @@ namespace MiningSimulator.Ores
         public string FireState => Data ? Data.combat.fireState : "Throw";
         public float ReleaseMoment => Data ? Data.combat.releaseMoment : .45f;
         public float Range => Data ? Data.combat.rangedRange * Mathf.Max(.01f, transform.lossyScale.x) : 0;
-        public bool CanReach(Transform victim)
-        {
-            if (!IsReady || !victim) return false;
-            var collider = victim.GetComponent<Collider>();
-            Vector3 ray = (collider && collider.enabled ? collider.bounds.center : victim.position) - releasePoint.position;
-            if (ray.sqrMagnitude < .001f) return true;
-            int count = Physics.RaycastNonAlloc(releasePoint.position, ray.normalized, sightHits, ray.magnitude, ~0, QueryTriggerInteraction.Ignore);
-            if (count == sightHits.Length) return false;
-            for (int i=0; i<count; i++)
-                if (!sightHits[i].transform.IsChildOf(transform) && !sightHits[i].transform.IsChildOf(victim)) return false;
-            return true;
-        }
+        public bool CanReach(Transform victim) => IsReady && victim &&
+            MonsterProjectileSight.CanReach(releasePoint.position, transform, victim, sightHits);
         public void Fire(MushroomMonster owner, Transform victim)
         {
             if (!IsReady || !owner || !victim) return;
@@ -71,6 +61,7 @@ namespace MiningSimulator.Ores
         }
         public void TickHealing(float seconds)
         {
+            if (monster.IsSupportAlly) return;
             var data=Data;if(!data||!monster.Health||monster.Health.Health<=0)return;
             healingClock+=Mathf.Max(0,seconds);
             if(healingClock<Mathf.Max(.1f,data.healingInterval))return;

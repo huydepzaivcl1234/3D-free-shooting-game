@@ -80,7 +80,7 @@ namespace MiningSimulator.Ores
     }
 
     /// <summary>Designer-owned identity, drop selection and timed effect for one consumable.</summary>
-    [CreateAssetMenu(fileName = "MiningItem", menuName = "Mining Simulator/Game Data/Item")]
+    [CreateAssetMenu(fileName = "MiningItem", menuName = "Survivor/Game Data/Item")]
     public sealed class MiningItemData : ScriptableObject
     {
         [Header("Identity")]

@@ -100,7 +100,7 @@ namespace MiningSimulator.Ores
                     float extent = chestBody != null ? Mathf.Max(chestBody.bounds.extents.x, chestBody.bounds.extents.z) : 0f;
                     float reach = extent + MonsterPathFollower.ProfileFor(motor).Radius + config.stealRange * .6f;
                     movement.moveSpeed = Mathf.Max(0f, config.approachSpeed);
-                    velocity = path.Tick(goal, chest.transform, reach, movement, dt) * movement.moveSpeed;
+                    velocity = TravelDirection(goal, chest.transform, reach, dt) * movement.moveSpeed;
                 }
             }
             else if (State == ThiefState.Stealing)
@@ -119,7 +119,7 @@ namespace MiningSimulator.Ores
                 if (fleeClock <= 0f || Flat(fleeGoal - transform.position).sqrMagnitude < .25f)
                 { ChooseFleeGoal(playerDistance); fleeClock = Mathf.Max(.05f, config.fleeRepathSeconds); }
                 movement.moveSpeed = Mathf.Max(0f, config.escapeSpeed);
-                if (!IsResting) velocity = path.Tick(fleeGoal, null, 0f, movement, dt) * movement.moveSpeed;
+                if (!IsResting) velocity = TravelDirection(fleeGoal, null, 0f, dt) * movement.moveSpeed;
                 if (!owner.IsBoss && State == ThiefState.Escaping && escapeClock >= config.minimumEscapeSeconds &&
                     (chest == null || Flat(transform.position - ChestCenter).magnitude >= config.escapeDistanceFromChest) &&
                     playerDistance >= config.safeFromPlayerRange)
@@ -133,11 +133,23 @@ namespace MiningSimulator.Ores
             Play(velocity.sqrMagnitude > .001f ? config.moveState : config.idleState);
             if (velocity.sqrMagnitude > .001f)
                 transform.rotation = Quaternion.RotateTowards(transform.rotation, Quaternion.LookRotation(velocity), movement.chaseTurnSpeed * dt);
-            verticalSpeed = motor.isGrounded ? -2f : verticalSpeed + Physics.gravity.y * dt;
             Vector3 beforeMove = transform.position;
-            if (motor.enabled) motor.Move((velocity + Vector3.up * verticalSpeed) * dt);
+            Vector3? terrainGoal = State == ThiefState.Evading || State == ThiefState.Escaping
+                ? fleeGoal : State == ThiefState.Sneaking && chest != null ? ChestCenter : null;
+            if (motor.enabled && !owner.TerrainMotor.TryMove(velocity, dt, terrainGoal))
+            {
+                verticalSpeed = motor.isGrounded ? -2f : verticalSpeed + Physics.gravity.y * dt;
+                motor.Move((velocity + Vector3.up * verticalSpeed) * dt);
+            }
             stamina.Tick(dt, Flat(transform.position - beforeMove).sqrMagnitude > .000001f);
             if (IsInvisible && owner.Health.HealthBar != null) owner.Health.HealthBar.gameObject.SetActive(false);
+        }
+
+        private Vector3 TravelDirection(Vector3 goal, Transform target, float reach, float dt)
+        {
+            if (owner.TerrainMotor.DifferentTier(goal) &&
+                owner.TerrainMotor.TryPursue(goal, reach, false, out var direction)) return direction;
+            return path.Tick(goal, target, reach, movement, dt);
         }
 
         private Vector3 ChestCenter => chestBody != null ? chestBody.bounds.center : chest.transform.position;

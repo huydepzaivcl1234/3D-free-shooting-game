@@ -31,12 +31,16 @@ namespace MiningSimulator.Ores
         private readonly TMP_Text advanceHint;
         private readonly GameObject root;
         private readonly RectTransform modal;
-        private readonly TMP_Text nameLabel, dialogue, prompt, tracker, completion;
+        private readonly TMP_Text nameLabel, dialogue, completion;
         private readonly TMP_FontAsset defaultFont;
         private float completionElapsed;
         private readonly List<(Button button, TMP_Text label)> buttons = new();
         private readonly RectTransform row;
-        private MiningLanguage promptLanguage;
+        private RectTransform overhead;
+        private CanvasGroup speechBubble;
+        private TMP_Text bubbleLabel, questMarker, interactHint;
+        private float bubbleUntil;
+        private bool wasInRange;
         private Vector3 dialoguePosition, dialogueFocus;
         private readonly List<(Renderer renderer, bool hidden)> playerRenderers = new();
         private Camera camera;
@@ -72,11 +76,6 @@ namespace MiningSimulator.Ores
             scaler.matchWidthOrHeight = 0.5f;
             var parent = (RectTransform)root.transform;
 
-            prompt = Text(Rect(parent, "Interact", new Vector2(.5f, .22f), Vector2.zero, new Vector2(420, 44)), 23);
-            prompt.alignment = TextAlignmentOptions.Center;
-            prompt.gameObject.SetActive(false);
-            tracker = Text(Rect(parent, "Quest progress", new Vector2(0, .78f), new Vector2(24, 0), new Vector2(470, 88), new Vector2(0, 1)), 22);
-            tracker.gameObject.SetActive(false);
             completion = Text(Rect(parent, "Quest completed", new Vector2(.5f, .75f), Vector2.zero, new Vector2(760, 90)), 30);
             completion.alignment = TextAlignmentOptions.Center;
             completion.gameObject.SetActive(false);
@@ -166,22 +165,74 @@ namespace MiningSimulator.Ores
             completion.gameObject.SetActive(true);
         }
 
-        public void ShowPrompt(bool nearby)
+        public void AttachOverhead(Transform target)
         {
-            if (nearby && (!prompt.gameObject.activeSelf || promptLanguage != MiningLocalization.CurrentLanguage))
-            {
-                promptLanguage = MiningLocalization.CurrentLanguage;
-                prompt.text = MiningLocalization.TextKey("QUEST_TALK", "[E] Talk to Quest Guide");
-            }
-            if (prompt.gameObject.activeSelf != nearby) prompt.gameObject.SetActive(nearby);
+            overhead = Rect(target, "Quest Overhead", new Vector2(.5f, .5f), Vector2.zero, new Vector2(340, 104));
+            var canvas = overhead.gameObject.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.WorldSpace;
+            overhead.localScale = Vector3.one * .0026f;
+
+            float top = FindFace(target).y;
+            foreach (var renderer in target.GetComponentsInChildren<Renderer>())
+                if (renderer.enabled && renderer.gameObject.activeInHierarchy)
+                    top = Mathf.Max(top, renderer.bounds.max.y);
+            overhead.position = target.position + Vector3.up * (top - target.position.y + .48f);
+
+            var badge = Rect(overhead, "Quest Available", new Vector2(.5f, .5f), Vector2.zero, new Vector2(112, 116));
+            RoundedImage(badge, new Color(.09f, .07f, .035f, .96f)).raycastTarget = false;
+            questMarker = Text(Rect(badge, "Exclamation", new Vector2(.5f, .5f), Vector2.zero, new Vector2(108, 116)), 108);
+            questMarker.text = "!";
+            questMarker.alignment = TextAlignmentOptions.Center;
+            questMarker.fontStyle = FontStyles.Bold;
+            questMarker.outlineColor = new Color32(94, 43, 6, 255);
+            questMarker.outlineWidth = .18f;
+
+            interactHint = Text(Rect(overhead, "Interact", new Vector2(.5f, .5f), new Vector2(0, -72), new Vector2(74, 34)), 28);
+            interactHint.alignment = TextAlignmentOptions.Center;
+            interactHint.text = "[E]";
+
+            var bubble = Rect(overhead, "No Quest Bubble", new Vector2(.5f, .5f), Vector2.zero, new Vector2(340, 84));
+            RoundedImage(bubble, new Color(.07f, .11f, .16f, .94f)).raycastTarget = false;
+            speechBubble = bubble.gameObject.AddComponent<CanvasGroup>();
+            var textRect = Rect(bubble, "Message", new Vector2(.5f, .5f), Vector2.zero, new Vector2(312, 66));
+            bubbleLabel = Text(textRect, 24);
+            bubbleLabel.alignment = TextAlignmentOptions.Center;
+            overhead.gameObject.SetActive(false);
         }
 
-        public void SetTracker(string progress)
+        public void UpdateOverhead(bool visible, bool inRange, bool available, string message)
         {
-            if (tracker.text == progress) return;
-            tracker.text = progress;
-            tracker.gameObject.SetActive(progress.Length > 0);
+            if (!overhead) return;
+            float now = Time.unscaledTime;
+            if (!visible || isOpen)
+            {
+                overhead.gameObject.SetActive(false);
+                return;
+            }
+
+            if (inRange && !wasInRange && !available)
+                bubbleUntil = now + 2f;
+            wasInRange = inRange;
+            if (available) bubbleUntil = 0;
+
+            bool showBubble = now < bubbleUntil;
+            overhead.gameObject.SetActive(available || showBubble);
+            if (!overhead.gameObject.activeSelf) return;
+
+            var view = Camera.main;
+            if (view) overhead.rotation = view.transform.rotation;
+            questMarker.transform.parent.gameObject.SetActive(available);
+            interactHint.gameObject.SetActive(available && inRange);
+            questMarker.color = Color.Lerp(new Color(1f, .78f, .24f), new Color(1f, .97f, .67f),
+                .5f + .5f * Mathf.Sin(now * 4f));
+            speechBubble.gameObject.SetActive(showBubble);
+            if (showBubble)
+            {
+                if (bubbleLabel.text != message) bubbleLabel.text = message;
+                speechBubble.alpha = Mathf.Clamp01((bubbleUntil - now) / .35f);
+            }
         }
+
 
         public void Open(Transform target, TopDownSurvivor view)
         {
@@ -218,8 +269,7 @@ namespace MiningSimulator.Ores
             else Time.timeScale = 0;
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
-            ShowPrompt(false);
-            SetTracker("");
+            if (overhead) overhead.gameObject.SetActive(false);
         }
 
         private static Vector3 FindFace(Transform target)

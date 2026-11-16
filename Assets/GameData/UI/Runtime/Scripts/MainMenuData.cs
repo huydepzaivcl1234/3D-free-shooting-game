@@ -4,7 +4,7 @@ namespace MiningSimulator.Ores
 {
     /// <summary>Designer-owned presentation and timing values for the startup main menu.</summary>
     [CreateAssetMenu(fileName = "MainMenuData",
-        menuName = "Mining Simulator/Game Data/Main Menu")]
+        menuName = "Survivor/Game Data/Main Menu")]
     [UnityEngine.Scripting.APIUpdating.MovedFrom(true,"MiningSimulator.Ores","Assembly-CSharp","MiningMainMenuData")]
     public sealed class MainMenuData : ScriptableObject
     {

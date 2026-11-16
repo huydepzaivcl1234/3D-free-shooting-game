@@ -4,7 +4,7 @@ using UnityEngine;
 namespace MiningSimulator.Ores
 {
     /// <summary>Reveals scene-authored HUD in place with a smooth CanvasGroup fade.</summary>
-    [AddComponentMenu("Mining Simulator/UI/Smooth Fade (Buttons and HUD)")]
+    [AddComponentMenu("Survivor/UI/Smooth Fade (Buttons and HUD)")]
     [DisallowMultipleComponent]
     public sealed class MiningUiSmoothFade : MonoBehaviour
     {

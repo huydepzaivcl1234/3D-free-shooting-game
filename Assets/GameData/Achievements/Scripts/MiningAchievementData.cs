@@ -45,7 +45,7 @@ namespace MiningSimulator.Ores
 
     /// <summary>Designer-owned achievement goals, permanent rewards, and save key.</summary>
     [CreateAssetMenu(fileName = "MiningAchievementData",
-        menuName = "Mining Simulator/Game Data/Achievements")]
+        menuName = "Survivor/Game Data/Achievements")]
     public sealed class MiningAchievementData : ScriptableObject
     {
         [SerializeField] private string saveKey = "MiningSimulator.Achievements.v1";

@@ -18,7 +18,7 @@ namespace GameData.Player.Script
         private TopDownSurvivor cameraView;
         private Coroutine deathRoutine;
         private bool ownsSlowMotion;
-        private float previousTimeScale,previousFixedStep;
+        private float previousTimeScale,previousFixedStep,appliedDeathScale;
         private Vector3 buttonScale;
         private Vector2 buttonPosition;
         private RectTransform buttonRect;
@@ -66,15 +66,27 @@ namespace GameData.Player.Script
             else if(body)body.linearVelocity=new Vector3(0f,body.linearVelocity.y,0f);
             if(RunCheckpoint.IsRestoring){ShowRespawn();return;}
             if(panel)panel.SetActive(false);
-            previousTimeScale=Time.timeScale;previousFixedStep=Time.fixedDeltaTime;ownsSlowMotion=true;
-            Time.timeScale=deathTimeScale;Time.fixedDeltaTime=previousFixedStep*deathTimeScale;
+            previousTimeScale = Time.timeScale;
+            if (previousTimeScale > 0f && deathTimeScale < 1f)
+            {
+                previousFixedStep = Time.fixedDeltaTime;
+                appliedDeathScale = previousTimeScale * deathTimeScale;
+                ownsSlowMotion = true;
+                Time.timeScale = appliedDeathScale;
+                Time.fixedDeltaTime = previousFixedStep * deathTimeScale;
+            }
             cameraView?.BeginDeathView(deathSeconds);
             deathRoutine=StartCoroutine(DeathPresentation());
         }
         private void RestoreClock()
         {
             if(!ownsSlowMotion)return;
-            Time.timeScale=previousTimeScale;Time.fixedDeltaTime=previousFixedStep;ownsSlowMotion=false;
+            ownsSlowMotion = false;
+            Time.fixedDeltaTime = previousFixedStep;
+            var ui = FindAnyObjectByType<UiPanelCoordinator>();
+            bool modalOwnsClock = ui && ui.RestoreAfterDeathSlowMotion(appliedDeathScale, previousTimeScale);
+            if (!modalOwnsClock && Mathf.Approximately(Time.timeScale, appliedDeathScale))
+                Time.timeScale = previousTimeScale;
         }
         private void ResetButton()
         {
@@ -116,6 +128,7 @@ namespace GameData.Player.Script
                 bool clear=true;foreach(var enemy in CharacterHealth.ActiveMonsters)if(enemy&&enemy.IsTargetable&&(enemy.transform.position-candidate).sqrMagnitude<(radius+2)*(radius+2)){clear=false;break;}
                 if(clear){position=candidate+Vector3.up*.03f;break;}
             }
+            if (grid) position = grid.ResolvePortalSpawn(position, radius, height);
             Quaternion rotation = spawnPoint ? spawnPoint.rotation : initialRotation;
             var body = GetComponent<Rigidbody>();
             transform.SetPositionAndRotation(position, rotation);

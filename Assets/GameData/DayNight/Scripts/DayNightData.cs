@@ -9,7 +9,7 @@ namespace MiningSimulator.Ores
     }
 
     /// <summary>Designer-owned day/night timing, lighting and special-ore rules.</summary>
-    [CreateAssetMenu(fileName = "DayNightData", menuName = "Mining Simulator/Game Data/Day Night")]
+    [CreateAssetMenu(fileName = "DayNightData", menuName = "Survivor/Game Data/Day Night")]
     public sealed class DayNightData : ScriptableObject
     {
         [Header("Cycle")]

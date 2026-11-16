@@ -26,6 +26,7 @@ namespace MiningSimulator.Ores
         public static event System.Action<CharacterHealth,GameObject> AnyDied;
         private static readonly System.Collections.Generic.HashSet<CharacterHealth> activeMonsters=new();
         public static System.Collections.Generic.IReadOnlyCollection<CharacterHealth> ActiveMonsters=>activeMonsters;
+        internal void ExcludeSupportAllyFromEnemyTargets() => activeMonsters.Remove(this);
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void ResetDamageObservers() { AnyDamaged=null;AnyDied=null;activeMonsters.Clear(); }
         public event System.Action Died;
@@ -40,10 +41,15 @@ namespace MiningSimulator.Ores
         [SerializeField] private string healthValueSuffix = "";
         private int displayedLevel = -1;
         private Camera healthCamera;
+        private const float EnemyHealthBarDistance = 24f;
+        private CanvasGroup enemyBarVisibility;
+        private float nextBarOcclusionCheck;
+        private bool barUnobstructed;
+        private static int barOccluders;
         private float health;
         private bool damageEnabled = true;
         private GameData.Player.Script.SurvivorAbilities survivorAbilities;
-        private GameData.Player.Script.SurvivorAbilities Abilities=>CrowdOwner?null:survivorAbilities?survivorAbilities:survivorAbilities=GetComponent<GameData.Player.Script.SurvivorAbilities>();
+        private GameData.Player.Script.SurvivorAbilities Abilities=>survivorAbilities?survivorAbilities:survivorAbilities=GetComponent<GameData.Player.Script.SurvivorAbilities>();
         public void SetDamageEnabled(bool value) => damageEnabled = value;
         private int displayedBossSeconds = -1;
         private float healingBonusPercent;
@@ -63,29 +69,15 @@ namespace MiningSimulator.Ores
         public bool IsGunShot { get; private set; }
         public float Health => Application.isPlaying ? health : MaxHealth;
         public Transform HealthBar => healthBar;
-        internal void AttachCrowdBar(CharacterHealth template, Transform bar)
-        {
-            healthBar=bar;microBar=bar.GetComponentInChildren<MicroBar>(true);
-            TMP_Text Map(TMP_Text original){
-                if(!original)return null;var names=new System.Collections.Generic.Stack<string>();var t=original.transform;
-                while(t&&t!=template.healthBar){names.Push(t.name);t=t.parent;}
-                if(!t)return null;t=bar;while(names.Count>0&&t)t=t.Find(names.Pop());return t?t.GetComponent<TMP_Text>():null;
-            }
-            healthLabel=Map(template.healthLabel);levelLabel=Map(template.levelLabel);nameLabel=Map(template.nameLabel);displayName=template.displayName;healthValueSuffix=template.healthValueSuffix;
-            if(microBar)microBar.Initialize(MaxHealth);Refresh(false);
-        }
-
-        public SurvivorCrowd CrowdOwner { get; internal set; }
-        public int CrowdSlot { get; internal set; }
-        internal GameData.Player.Script.SurvivorEnemyStatus CrowdStatus;
+        internal GameData.Player.Script.SurvivorEnemyStatus EnemyStatus { get; set; }
         private MushroomMonster combatOwner;
         private GodBossController godOwner;
-        public bool IsMonster => CrowdOwner != null || combatOwner != null || godOwner != null;
+        public bool IsMonster => combatOwner != null || godOwner != null;
         private MonsterCombatSettings MonsterCombat => combatOwner != null ? combatOwner.CombatData : null;
         private PlayerStats playerStats;
         private WorldActorVisibility visibility;
         private static readonly Unity.Profiling.ProfilerMarker HealthMarker=new("Combat.HealthUpdate");
-        private PlayerStats PlayerStats => CrowdOwner||combatOwner||godOwner ? null : playerStats != null ? playerStats : playerStats = GetComponent<PlayerStats>();
+        private PlayerStats PlayerStats => IsMonster ? null : playerStats != null ? playerStats : playerStats = GetComponent<PlayerStats>();
         private PlayerStatsData Stats => PlayerStats != null ? PlayerStats.Data : null;
         private bool HasPlayerStats => PlayerStats != null && (PlayerStats.CoreData != null || Stats != null);
         public float Armor => CombatDamage.NonNegative(HasPlayerStats ? PlayerStats.Armor : armor) +
@@ -142,7 +134,8 @@ public void ConfigureMaximumHealth(float value, bool preserveDamage = true)
         public float HealingMultiplier => 1f + (Mathf.Max(0f,
             HasPlayerStats ? (EquipmentBonuses != null ? EquipmentBonuses.healingBonusPercent : 0f) : healingBonusPercent) +
             
-            (HasPlayerStats ? PlayerStats.CardHealingPercent : 0f)) * 0.01f;
+            (HasPlayerStats ? PlayerStats.CardHealingPercent : 0f) +
+            (PlayerStats?.Support?.Level(SupportUpgradeId.Healing) ?? 0)) * 0.01f;
         public float EffectiveRegenAmount => RegenAmount * HealingMultiplier;
         private float initializedMaxHealth;
         public void Respawn()
@@ -153,6 +146,7 @@ public void ConfigureMaximumHealth(float value, bool preserveDamage = true)
             regenTimer = 0f;
             ClearBurn();
             if(Abilities)Abilities.ResetLife();
+            PlayerStats?.Support?.ResetLife();
             Refresh(true);
         }
         public void ApplyDamage(float amount)
@@ -175,17 +169,24 @@ public void ConfigureMaximumHealth(float value, bool preserveDamage = true)
         public float DealDamageWithTrueBonus(float amount, CombatDamageType type, GameObject source, float trueBonus, bool basicAttack=false, bool periodic=false,bool abilityProc=false)
         {
             if(source&&source.TryGetComponent<GameData.Player.Script.SurvivorEnemyStatus>(out var status))amount=Mathf.Max(0,amount-status.DamageReduction);
-            if(TryGetComponent<GameData.Player.Script.SurvivorEnemyStatus>(out var victimStatus))amount*=victimStatus.DamageTakenMultiplier;
+            if(EnemyStatus)amount*=EnemyStatus.DamageTakenMultiplier;
             amount = CombatDamage.Resolve(amount, type, Armor, MagicResistance, ResistanceScale);
             amount += CombatDamage.NonNegative(trueBonus);
             if (PlayerStats != null) amount *= 1f - PlayerStats.ConsumableDamageReduction;
             if (!damageEnabled || amount <= 0f || health <= 0f || survival&&survival.ReprieveActive) return 0f;
             if(Abilities){amount=Abilities.ReceiveHit(amount,source);if(amount<=0)return 0;}
+            var support = PlayerStats?.Support;
+            if (support)
+            {
+                amount = support.AbsorbWithTemporaryShield(amount);
+                if (amount <= 0f) return 0f;
+            }
             float previous=health;
             LastDamageSource = source;
             health = Mathf.Max(0f, health - amount);
             if(health<=0&&survival&&survival.TryPreventDeath())health=Mathf.Min(1,MaxHealth);
             float dealt=previous-health;
+            if (dealt > 0f && health > 0f && support) support.RecordDamageTaken();
             // A damage listener may apply a separate lethal proc. Only the hit that
             // actually crossed zero owns death notification (avoid nested double Died).
             bool killedByThisHit = health <= 0f;
@@ -254,7 +255,7 @@ public void ConfigureMaximumHealth(float value, bool preserveDamage = true)
 
         private void OnEnable()
         {
-            if(IsMonster)activeMonsters.Add(this);
+            if(IsMonster && (combatOwner == null || !combatOwner.IsSupportAlly))activeMonsters.Add(this);
             regenTimer = 0f;
             MiningLocalization.LanguageChanged += RefreshLabel;
         }
@@ -263,25 +264,24 @@ public void ConfigureMaximumHealth(float value, bool preserveDamage = true)
 
         private void Update()
         {
-            if(CrowdOwner)return;
-            TickCrowdHealth(Time.deltaTime);
+            TickHealth(Time.deltaTime);
         }
-        internal bool NeedsCrowdHealthTick=>burn.IsActive||health<initializedMaxHealth;
-        internal void TickCrowdHealth(float deltaTime)
+        private void TickHealth(float deltaTime)
         {
             if(visibility&&visibility.SimulationPaused)return;
             using var healthSample=HealthMarker.Auto();
-            TickBurn(deltaTime);
+            if (burn.IsActive || (burnEffect && burnEffect.activeSelf)) TickBurn(deltaTime);
             if(survival&&survival.ReprieveActive)return;
-            if (initializedMaxHealth != MaxHealth)
+            float maximum = MaxHealth;
+            if (initializedMaxHealth != maximum)
             {
                 // Expiring maximum-HP buffs must not silently kill a low-health player.
-                if (health > 0) health = Mathf.Clamp(health + Mathf.Max(0, MaxHealth - initializedMaxHealth), 0, MaxHealth);
-                initializedMaxHealth = MaxHealth;
-                if (microBar != null) microBar.Initialize(MaxHealth);
+                if (health > 0) health = Mathf.Clamp(health + Mathf.Max(0, maximum - initializedMaxHealth), 0, maximum);
+                initializedMaxHealth = maximum;
+                if (microBar != null) microBar.Initialize(maximum);
                 Refresh(true);
             }
-            if (health <= 0f || health >= MaxHealth || RegenAmount <= 0f)
+            if (health <= 0f || health >= maximum || RegenAmount <= 0f)
             {
                 regenTimer = 0f;
                 return;
@@ -304,8 +304,9 @@ public void ConfigureMaximumHealth(float value, bool preserveDamage = true)
         {
             survival=GetComponent<GameData.Player.Script.GunSpecialUpgrades>();
             combatOwner = GetComponent<MushroomMonster>();
+            if (barOccluders == 0) barOccluders = LayerMask.GetMask("Ground", "MapObstacle");
             godOwner = GetComponent<GodBossController>();
-            if (IsMonster && Application.isPlaying && !CrowdOwner)
+            if (IsMonster && Application.isPlaying)
             {
                 if (!GetComponent<MonsterHitFeedback>()) gameObject.AddComponent<MonsterHitFeedback>();
                 WorldActorVisibility.Attach(gameObject);
@@ -327,7 +328,6 @@ public void ConfigureMaximumHealth(float value, bool preserveDamage = true)
 
         private void LateUpdate()
         {
-            if(CrowdOwner)return;
             if(visibility&&visibility.SimulationPaused)return;
             using var healthSample=HealthMarker.Auto();
             var monster = combatOwner;
@@ -340,10 +340,35 @@ public void ConfigureMaximumHealth(float value, bool preserveDamage = true)
             if (healthBar == null || !healthBar.gameObject.activeInHierarchy) return;
             if (screenSpaceBar) return;
             if (healthCamera == null) healthCamera = Camera.main;
-            if (healthCamera != null)
-                healthBar.rotation = Quaternion.LookRotation(
-                    healthBar.position - healthCamera.transform.position,
-                    healthCamera.transform.up);
+            if (!healthCamera) return;
+            Vector3 toBar = healthBar.position - healthCamera.transform.position;
+            if (monster || godOwner)
+            {
+                if (!enemyBarVisibility)
+                {
+                    if (!healthBar.TryGetComponent(out enemyBarVisibility))
+                        enemyBarVisibility = healthBar.gameObject.AddComponent<CanvasGroup>();
+                    enemyBarVisibility.alpha = 0f;
+                    nextBarOcclusionCheck = Time.time + (GetHashCode() & 7) * .015f;
+                }
+                float range = RenderSettings.fog && RenderSettings.fogMode == FogMode.Linear
+                    ? Mathf.Min(EnemyHealthBarDistance, RenderSettings.fogEndDistance * .65f)
+                    : EnemyHealthBarDistance;
+                bool inRange = toBar.sqrMagnitude < range * range && (!visibility || visibility.IsVisible);
+                if (inRange && Time.time >= nextBarOcclusionCheck)
+                {
+                    nextBarOcclusionCheck = Time.time + .12f;
+                    barUnobstructed = !Physics.Linecast(healthCamera.transform.position, healthBar.position,
+                        barOccluders, QueryTriggerInteraction.Ignore);
+                }
+                else if (!inRange) barUnobstructed = false;
+                bool show = inRange && barUnobstructed;
+                float alpha = show ? 1f : 0f;
+                if (enemyBarVisibility.alpha != alpha) enemyBarVisibility.alpha = alpha;
+                if (!show) return;
+            }
+            if (toBar.sqrMagnitude > .0001f)
+                healthBar.rotation = Quaternion.LookRotation(toBar, healthCamera.transform.up);
         }
 
         private void Refresh(bool skipAnimation, UpdateAnim updateType = UpdateAnim.Damage)
@@ -368,7 +393,7 @@ public void ConfigureMaximumHealth(float value, bool preserveDamage = true)
             {
                 var player = PlayerStats;
                 var monster = combatOwner;
-                int level = player != null ? player.Level : monster != null ? monster.Level : CrowdOwner ? CrowdOwner.LevelOf(CrowdSlot) : 1;
+                int level = player != null ? player.Level : monster != null ? monster.Level : 1;
                 displayedLevel = level;
                 string status = string.Empty;
                 if (monster != null && monster.IsBoss)
@@ -402,7 +427,12 @@ public void ConfigureMaximumHealth(float value, bool preserveDamage = true)
         private void ApplyBurnDamage(float amount)
         {
             bool previous=IsBurnDamage;IsBurnDamage=true;
-            try{DealPeriodicDamage(amount,CombatDamageType.Magic,burnSource);}
+            try
+            {
+                var support = IsMonster ? PlayerSupportUpgrades.For(burnSource ? burnSource.transform : null) : null;
+                if (support) amount += MaxHealth * support.Scaled(SupportUpgradeId.Burn, 1f, .05f) * .01f;
+                DealPeriodicDamage(amount, CombatDamageType.Magic, burnSource);
+            }
             finally{IsBurnDamage=previous;}
         }
     }

@@ -16,10 +16,10 @@ MonoBehaviour:
   minimumPlayerLevelToSpawn: 1
   minimumSpawnDay: 25
   combat:
-    maxHealth: 30
+    maxHealth: 4
     regenAmount: 0
     regenInterval: 5
-    attackSpeed: 0.25
+    attackSpeed: 1
     attackState: Headbutt
     secondAttackState: 
     secondHitMoment: 0.52
@@ -152,13 +152,13 @@ MonoBehaviour:
   arcHeight: 2.5
   healingRange: 10
   healingFlat: 10
-  healingMaxHealthPercent: 10
-  redFlatDamage: 5
-  redPlayerMaxHealthPercent: 2
+  healingMaxHealthPercent: 5
+  redFlatDamage: 1
+  redPlayerMaxHealthPercent: 1
   burnDuration: 5
-  abilityPower: 5
+  abilityPower: 2
   abilityPowerPerLevel: 1
   yellowFlatDamage: 5
-  yellowAbilityPowerPercent: 15
+  yellowAbilityPowerPercent: 5
   attackSpeedSlowPercent: 25
   slowDuration: 5

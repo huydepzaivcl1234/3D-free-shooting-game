@@ -90,7 +90,7 @@ namespace MiningSimulator.Ores
 
     /// <summary>Designer-owned products and prices for the Gem shop.</summary>
     [CreateAssetMenu(fileName = "MiningShopData",
-        menuName = "Mining Simulator/Game Data/Shop")]
+        menuName = "Survivor/Game Data/Shop")]
     public sealed class MiningShopData : ScriptableObject
     {
         [Header("Shop Products")]

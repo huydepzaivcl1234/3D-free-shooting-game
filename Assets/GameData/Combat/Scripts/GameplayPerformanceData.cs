@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace MiningSimulator.Ores
 {
-    [CreateAssetMenu(menuName="Mining Simulator/Game Data/Gameplay Performance")]
+    [CreateAssetMenu(menuName="Survivor/Game Data/Gameplay Performance")]
     public sealed class GameplayPerformanceData : ScriptableObject
     {
         [Tooltip("Khoảng vẽ camera thế giới, mét. 0 giữ camera gốc. AI ngoài camera tuân theo Freeze Offscreen Simulation.")]

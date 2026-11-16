@@ -44,7 +44,8 @@ namespace GameData.Player.Script
 
         public float CurrentMana { get; private set; }
         internal event System.Action<float> Spent;
-        public float MaximumMana => Mathf.Max(1f, CoreData != null ? CoreData.maxStamina : maximumMana);
+        public float MaximumMana => Mathf.Max(1f, CoreData != null ? CoreData.maxStamina : maximumMana) *
+            (playerStats ? playerStats.OvertimeMultiplier : 1f);
         public bool IsRunningAnimation { get; private set; }
         public bool IsDepleted => CurrentMana <= 0f;
         public bool CanRun => CurrentMana > 0f && !exhausted;

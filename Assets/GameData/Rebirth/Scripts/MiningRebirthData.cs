@@ -3,7 +3,7 @@ using UnityEngine;
 namespace MiningSimulator.Ores
 {
     /// <summary>Designer-owned progression values for permanent rebirth bonuses.</summary>
-    [CreateAssetMenu(fileName = "MiningRebirthData", menuName = "Mining Simulator/Game Data/Rebirth")]
+    [CreateAssetMenu(fileName = "MiningRebirthData", menuName = "Survivor/Game Data/Rebirth")]
     public sealed class MiningRebirthData : ScriptableObject
     {
         [Min(1), SerializeField] private int startingMoneyRequirement = 1000;

@@ -10,12 +10,14 @@ namespace MiningSimulator.Ores
         {
             public MiningCardData.Tier tier;
             public float rarityMultiplier;
+            public bool lootDraft;
             public List<SurvivorUpgradeData.Offer> rolled;
         }
         [System.Serializable]
         public sealed class SavedQueuedUpgrade
         {
             public bool ability;
+            public bool lootDraft;
             public float rarityMultiplier;
             public List<SurvivorUpgradeData.Offer> rolled;
         }
@@ -28,6 +30,7 @@ namespace MiningSimulator.Ores
                 saved.Add(new SavedQueuedUpgrade
                 {
                     ability = entry.tier == data.abilityCard,
+                    lootDraft = entry.lootDraft,
                     rarityMultiplier = entry.rarityMultiplier,
                     rolled = entry.rolled
                 });
@@ -46,6 +49,7 @@ namespace MiningSimulator.Ores
                 upgradeQueue.Add(new QueuedUpgrade
                 {
                     tier = tier,
+                    lootDraft = entry.lootDraft,
                     rarityMultiplier = float.IsFinite(entry.rarityMultiplier) && entry.rarityMultiplier > 0
                         ? entry.rarityMultiplier : 1f,
                     rolled = entry.rolled != null && entry.rolled.Count > 0 ? entry.rolled : null
@@ -68,13 +72,70 @@ namespace MiningSimulator.Ores
             return (CanCollect || choiceOpen) && Enqueue(tier, rarityMultiplier);
         }
 
-        private bool Enqueue(MiningCardData.Tier tier, float rarityMultiplier)
+        private bool Enqueue(MiningCardData.Tier tier, float rarityMultiplier, bool lootDraft = false)
         {
             if (!data || tier == null || data.tiers == null || data.tiers.Length == 0 ||
                 (tier != data.tiers[0] && tier != data.abilityCard)) return false;
             if(data.survivorUpgrades&&!data.survivorUpgrades.HasEligible(player,tier==data.abilityCard))return false;
-            upgradeQueue.Add(new QueuedUpgrade{tier=tier,rarityMultiplier=rarityMultiplier});RefreshQueueHud();return true;
+            upgradeQueue.Add(new QueuedUpgrade { tier = tier, rarityMultiplier = rarityMultiplier, lootDraft = lootDraft });
+            RefreshQueueHud();
+            return true;
         }
+        private SurvivorDailyLoot lootDraftOwner;
+        private Button lootRerollButton;
+        private TMPro.TMP_Text lootRerollLabel;
+
+        internal bool QueueLootDraft(float rarityMultiplier, SurvivorDailyLoot owner)
+        {
+            if (!CanCollect || choiceOpen || !data || !data.survivorUpgrades ||
+                !Enqueue(data.abilityCard, rarityMultiplier, lootDraft: true)) return false;
+            lootDraftOwner = owner;
+            return true;
+        }
+
+        private void RefreshLootReroll()
+        {
+            if (currentUpgrade?.lootDraft != true)
+            {
+                if (lootRerollButton) lootRerollButton.gameObject.SetActive(false);
+                return;
+            }
+            if (!lootDraftOwner) lootDraftOwner = FindAnyObjectByType<SurvivorDailyLoot>();
+            if (!lootRerollButton)
+            {
+                var rect = Box(choicePanel, "Lootbox reroll", Vector2.zero, Vector2.one, Hex("305260"));
+                rect.anchorMin = rect.anchorMax = new Vector2(.5f, 0);
+                rect.pivot = new Vector2(.5f, 0);
+                rect.sizeDelta = new Vector2(186, 42);
+                rect.anchoredPosition = new Vector2(165, 22);
+                var image = rect.GetComponent<Image>();
+                image.raycastTarget = true;
+                lootRerollButton = rect.gameObject.AddComponent<Button>();
+                lootRerollButton.targetGraphic = image;
+                lootRerollButton.onClick.AddListener(RerollLootDraft);
+                lootRerollLabel = Label(rect, "Label", "", 0, 0, 186, 42, 17, Hex("F5E0AB"));
+                lootRerollLabel.alignment = TMPro.TextAlignmentOptions.Center;
+            }
+            int remaining = lootDraftOwner ? lootDraftOwner.RerollsRemaining : 0;
+            lootRerollButton.transform.SetAsLastSibling();
+            lootRerollButton.gameObject.SetActive(true);
+            lootRerollButton.interactable = remaining > 0;
+            lootRerollLabel.text = string.Format(CardText("LOOTBOX_REROLL", "REROLL ({0})"), remaining);
+        }
+
+        private void RerollLootDraft()
+        {
+            if (!choiceOpen || pickFeedback != null || currentUpgrade?.lootDraft != true ||
+                !lootDraftOwner || lootDraftOwner.RerollsRemaining == 0) return;
+            var roll = data.survivorUpgrades.Roll(player, 3, true, currentUpgrade.rarityMultiplier, offers);
+            if (roll.Count == 0 || !lootDraftOwner.SpendReroll()) return;
+            currentUpgrade.rolled = offers = roll;
+            RefreshPresentation();
+            RefreshLootReroll();
+            RevealOffers();
+            MonsterSpawnZone.CaptureWorldsIfDue(force: true);
+        }
+
         public bool OpenQueued(bool ability)
         {
             if(!choiceOpen&&!CanCollect)return false;
@@ -96,16 +157,25 @@ namespace MiningSimulator.Ores
                 choiceOpen=true;if(!coordinator)Time.timeScale=0;AudioListener.pause=true;Cursor.lockState=CursorLockMode.None;Cursor.visible=true;
                 if(coordinator)coordinator.OpenPanel(choicePanel);else choicePanel.gameObject.SetActive(true);
             }
+            RefreshLootReroll();
             PanelAudio(true);
             RevealOffers();
             return true;
         }
         private void CompleteQueuedChoice()
         {
+            bool lootDraft = currentUpgrade?.lootDraft == true;
             if(currentUpgrade!=null)upgradeQueue.Remove(currentUpgrade);
             currentUpgrade=null;pending=null;offers=new();blueChoice=false;
+            RefreshLootReroll();
+            if (lootDraft) MonsterSpawnZone.CaptureWorldsIfDue(force: true);
             RefreshQueueHud();
-            while(upgradeQueue.Count>0){var next=upgradeQueue[0];if(OpenQueuedRequest(next))return;upgradeQueue.Remove(next);}
+            while (upgradeQueue.Count > 0)
+            {
+                var next = upgradeQueue[0];
+                if (OpenQueuedRequest(next)) return;
+                upgradeQueue.RemoveAt(0);
+            }
             ClosePending();
         }
         public void ClosePending()
@@ -133,6 +203,8 @@ namespace MiningSimulator.Ores
                 queueHud.anchorMin=anchor.anchorMin;queueHud.anchorMax=anchor.anchorMax;queueHud.pivot=anchor.pivot;queueHud.sizeDelta=new Vector2(150,84);queueHud.anchoredPosition=anchor.anchoredPosition+new Vector2(0,anchor.rect.height+18);
                 statQueueButton=QueueButton("Stat card",0,Hex("B94257"),false);abilityQueueButton=QueueButton("Ability card",78,Hex("277FCA"),true);
             }
+            bool showHud = !coordinator || !coordinator.IsMainMenuOpen;
+            if (queueHud.gameObject.activeSelf != showHud) queueHud.gameObject.SetActive(showHud);
             int red=PendingStatUpgrades,blue=PendingAbilityUpgrades;if(red==shownStats&&blue==shownAbilities)return;
             shownStats=red;shownAbilities=blue;
             statQueueButton.gameObject.SetActive(red>0);abilityQueueButton.gameObject.SetActive(blue>0);

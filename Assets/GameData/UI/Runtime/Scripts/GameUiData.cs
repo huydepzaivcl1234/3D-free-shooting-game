@@ -3,7 +3,7 @@ using UnityEngine;
 namespace MiningSimulator.Ores
 {
     /// <summary>Designer-owned layout and style values used to author the editable mining HUD prefab.</summary>
-    [CreateAssetMenu(fileName = "GameUiData", menuName = "Mining Simulator/Game Data/UI")]
+    [CreateAssetMenu(fileName = "GameUiData", menuName = "Survivor/Game Data/UI")]
     [UnityEngine.Scripting.APIUpdating.MovedFrom(true,"MiningSimulator.Ores","Assembly-CSharp","MiningUiData")]
     public sealed class GameUiData : ScriptableObject
     {

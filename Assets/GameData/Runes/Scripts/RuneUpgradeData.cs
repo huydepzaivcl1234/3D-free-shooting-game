@@ -21,7 +21,7 @@ namespace MiningSimulator.Ores
             return double.IsNaN(cost) || cost > float.MaxValue ? float.PositiveInfinity : (float)cost;
         }
     }
-    [CreateAssetMenu(menuName = "Mining Simulator/Game Data/Rune Upgrades")]
+    [CreateAssetMenu(menuName = "Survivor/Game Data/Rune Upgrades")]
     public sealed class RuneUpgradeData : ScriptableObject
     {
         [Tooltip("AS, damage and HP use percentage points; MR and armor use flat points.")]

@@ -5,6 +5,7 @@ namespace MiningSimulator.Ores
     public sealed partial class MonsterSpawnZone
     {
         private QuestNpcEncounter questNpcEncounter;
+        internal string ActiveNpcQuestProgress => questNpcEncounter?.QuestTracker();
 
         private void InitializeQuestEncounter()
         {

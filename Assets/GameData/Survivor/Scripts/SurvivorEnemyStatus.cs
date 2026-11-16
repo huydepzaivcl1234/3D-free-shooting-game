@@ -43,7 +43,7 @@ namespace GameData.Player.Script
         private void ClearFrost(){if(frostRenderers!=null)for(int i=0;i<frostRenderers.Length;i++)if(frostRenderers[i])frostRenderers[i].SetPropertyBlock(frostOriginal[i].isEmpty?null:frostOriginal[i]);frostRenderers=null;frostOriginal=null;frostSlow=frostVulnerability=frostRemaining=0;}
         public float DamageReduction=>weakRemaining>0?damageReduction:0;
         public bool Airborne=>airDuration>0;
-        private void Awake(){health=GetComponent<CharacterHealth>();if(health&&health.CrowdOwner)health.CrowdStatus=this;motor=GetComponent<CharacterController>();god=GetComponent<GodBossController>();}
+        private void Awake(){health=GetComponent<CharacterHealth>();if(health)health.EnemyStatus=this;motor=GetComponent<CharacterController>();god=GetComponent<GodBossController>();}
         public void Weaken(float amount,float duration){duration*=ControlDurationMultiplier;if(weakRemaining>0||duration<=0)return;damageReduction=Mathf.Max(0,amount);weakRemaining=duration;}
         public void RecordHit(SurvivorAbilities owner,int level)
         {
@@ -59,7 +59,7 @@ namespace GameData.Player.Script
         }
         private void Update()
         {
-            if(health&&health.CrowdOwner&&health.CrowdOwner.IsPaused(health.CrowdSlot)||WorldActorVisibility.ShouldPause(this))return;
+            if(WorldActorVisibility.ShouldPause(this))return;
             float dt=Time.deltaTime;airCooldownRemaining=Mathf.Max(0,airCooldownRemaining-dt);if(Frosted){frostRemaining=Mathf.Max(0,frostRemaining-dt);if(frostRemaining==0)ClearFrost();}weakRemaining=Mathf.Max(0,weakRemaining-dt);
             if(!Airborne)return;
             if(!health||!health.IsTargetable){RestoreHeight();return;}

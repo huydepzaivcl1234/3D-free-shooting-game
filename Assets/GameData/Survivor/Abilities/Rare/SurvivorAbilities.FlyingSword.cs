@@ -11,7 +11,7 @@ namespace GameData.Player.Script
         [Serializable] public sealed class SwordState
         {
             public int phase,sweepVersion;
-            public float time,cooldown,orbit,approach,swing,recovery,damage;
+            public float time,cooldown,orbit,approach,swing,recovery,damage,repeatDamage,repeatSwing;
             public Vector3 center,forward,start;
             public bool hit;
             public List<string> hitTargets=new();
@@ -147,6 +147,13 @@ namespace GameData.Player.Script
                     swordState.approach=Mathf.Min(rule.approachSeconds,interval*.15f);swordState.swing=Mathf.Min(rule.swingSeconds,interval*.65f);swordState.recovery=Mathf.Min(rule.returnSeconds,interval*.2f);
                     var delta=Vector3.ProjectOnPlane(target.transform.position-transform.position,Vector3.up);swordState.forward=delta.sqrMagnitude>.0001f?delta.normalized:transform.forward;
                     swordState.center=target.transform.position+Vector3.up*.8f;swordState.start=flyingSword?flyingSword.transform.position:SwordIdlePosition;swordState.phase=1;swordState.time=0;swordState.hit=false;swordState.damage=SwordDamage;swordState.sweepVersion=1;swordState.hitTargets.Clear();swordHitTargets.Clear();SwordSlashes++;
+                    int repeat = RollAbilityRepeat();
+                    if (repeat > 0)
+                    {
+                        swordState.repeatDamage = RepeatedAbilityDamage(swordState.damage, repeat);
+                        swordState.repeatSwing = swordState.swing * .4f;
+                        swordState.swing -= swordState.repeatSwing;
+                    }
                 }
             }
             if(swordState.phase!=0){
@@ -155,7 +162,30 @@ namespace GameData.Player.Script
                 if(swordState.phase==2){
                     // Substeps cover the complete blade sweep even at a low frame rate.
                     if(!(swordState.sweepVersion==0&&swordState.hit))SweepSword(SwordProgress(previous/Mathf.Max(.001f,swordState.swing)),SwordProgress(swordState.time/Mathf.Max(.001f,swordState.swing)));
-                    if(swordState.time>=swordState.swing){swordState.time-=swordState.swing;swordState.start=swordState.center+SwordRadial(1)*rule.cleaveRadius*.55f;swordState.phase=3;}
+                    bool finished = swordState.time >= swordState.swing;
+                    if (finished)
+                    {
+                        swordState.time -= swordState.swing;
+                        if (swordState.repeatSwing > 0)
+                        {
+                            swordState.swing = swordState.repeatSwing;
+                            swordState.damage = swordState.repeatDamage;
+                            swordState.repeatSwing = 0;
+                            swordState.hit = false;
+                            swordState.hitTargets.Clear();
+                            swordHitTargets.Clear();
+                            swordVfxTime = float.MaxValue;
+                            SwordSlashes++;
+                            SweepSword(0, SwordProgress(swordState.time / Mathf.Max(.001f, swordState.swing)));
+                            finished = swordState.time >= swordState.swing;
+                            if (finished) swordState.time -= swordState.swing;
+                        }
+                        if (finished)
+                        {
+                            swordState.start = swordState.center + SwordRadial(1) * rule.cleaveRadius * .55f;
+                            swordState.phase = 3;
+                        }
+                    }
                 }
                 if(swordState.phase==3&&swordState.time>=swordState.recovery){swordState.phase=0;swordState.time=0;}
             }
@@ -185,7 +215,7 @@ namespace GameData.Player.Script
                 }
             }
         }
-        private void ResetSword(){swordState.phase=0;swordState.time=0;swordState.cooldown=0;swordState.hit=false;swordState.hitTargets?.Clear();swordHitTargets.Clear();if(swordBladeGlow)swordBladeGlow.SetActive(false);if(flyingSword)flyingSword.SetActive(false);if(swordSlash)swordSlash.gameObject.SetActive(false);}
+        private void ResetSword(){swordState.phase=0;swordState.time=0;swordState.cooldown=0;swordState.hit=false;swordState.repeatSwing=0;swordState.hitTargets?.Clear();swordHitTargets.Clear();if(swordBladeGlow)swordBladeGlow.SetActive(false);if(flyingSword)flyingSword.SetActive(false);if(swordSlash)swordSlash.gameObject.SetActive(false);}
         private void DestroySword(){if(swordBladeGlow)Destroy(swordBladeGlow);if(swordGlowMesh)Destroy(swordGlowMesh);if(swordGlowMaterial)Destroy(swordGlowMaterial);if(flyingSword)Destroy(flyingSword);if(swordSlash)Destroy(swordSlash.gameObject);}
     }
 }

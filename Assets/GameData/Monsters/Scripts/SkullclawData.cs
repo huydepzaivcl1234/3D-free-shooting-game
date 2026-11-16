@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace MiningSimulator.Ores
 {
-    [CreateAssetMenu(menuName = "Mining Simulator/Monsters/Skullclaw")]
+    [CreateAssetMenu(menuName = "Survivor/Monsters/Skullclaw")]
     public sealed class SkullclawData : MonsterRewardData
     {
         [Header("Night encounter: roll once, at most one per night")]

@@ -18,11 +18,14 @@ namespace MiningSimulator.Ores
         public bool SupportsDepthOfField => optionsProfile != null && optionsProfile.Has<DepthOfField>();
         public bool DisplayPending { get; private set; }
         public float DisplaySecondsRemaining => Mathf.Max(0f, displayDeadline - Time.unscaledTime);
+        internal float ShadowDistanceLimit => terrainShadowBudget ? Defaults.shadowDistance : 150f;
+        internal int ShadowCascadeLimit => terrainShadowBudget ? Defaults.cascades : 4;
 
         private RenderPipelineAsset originalQualityPipeline;
         private UniversalRenderPipelineAsset runtimePipeline;
         private int originalVsync;
         private float originalShadowDistance;
+        private bool terrainShadowBudget;
         private readonly List<(UniversalAdditionalCameraData camera, bool post, AntialiasingMode aa, AntialiasingQuality quality)> cameras = new();
         private readonly List<(ScriptableRendererFeature feature, bool active)> aoStates = new();
         private readonly List<(Terrain terrain,float trees,float details)> terrains=new();
@@ -37,6 +40,7 @@ namespace MiningSimulator.Ores
         {
             if (initialized) return;
             initialized = true;
+            terrainShadowBudget = FindAnyObjectByType<TerrainGenerator>() != null;
             cameras.Clear(); aoStates.Clear(); SupportsMsaa = true;
             var source = GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset;
             originalQualityPipeline = QualitySettings.renderPipeline;
@@ -122,8 +126,8 @@ namespace MiningSimulator.Ores
             {
                 runtimePipeline.msaaSampleCount = SupportsMsaa ? Values.msaa : 1;
                 runtimePipeline.renderScale = Values.renderScale;
-                runtimePipeline.shadowCascadeCount = Values.cascades;
-                runtimePipeline.shadowDistance = Values.shadowDistance;
+                runtimePipeline.shadowCascadeCount = Mathf.Min(Values.cascades, ShadowCascadeLimit);
+                runtimePipeline.shadowDistance = Mathf.Min(Values.shadowDistance, ShadowDistanceLimit);
             }
             foreach (var state in cameras)
                 if (state.camera != null)

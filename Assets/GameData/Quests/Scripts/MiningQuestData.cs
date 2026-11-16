@@ -138,7 +138,7 @@ namespace MiningSimulator.Ores
     }
 
     [CreateAssetMenu(fileName = "MiningQuestData",
-        menuName = "Mining Simulator/Game Data/Daily And Weekly Quests")]
+        menuName = "Survivor/Game Data/Daily And Weekly Quests")]
     public sealed class MiningQuestData : ScriptableObject
     {
         [SerializeField] private string saveKey = "MiningSimulator.Quests.v1";

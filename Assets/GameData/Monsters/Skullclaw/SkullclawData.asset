@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3e0f084b95aa0074c9ce8052e3b4e34a, type: 3}
   m_Name: SkullclawData
   m_EditorClassIdentifier: Assembly-CSharp::MiningSimulator.Ores.SkullclawData
+  tier: 0
   minimumPlayerLevelToSpawn: 1
   minimumSpawnDay: 10
   combat:
@@ -62,6 +63,7 @@ MonoBehaviour:
     navigationObstacleLayers:
       serializedVersion: 2
       m_Bits: 4294967295
+    rangedOnly: 0
     projectile: {fileID: 0}
     fireState: Fire
     rangedRange: 8
@@ -118,7 +120,7 @@ MonoBehaviour:
   goldGrowthPerLevel: 0.75
   randomStatMultiplier: {x: 0.9, y: 1.1}
   experience: 25
-  gold: 50
+  gold: 100
   armor: 0
   magicResistance: 0
   armorPerLevel: 0

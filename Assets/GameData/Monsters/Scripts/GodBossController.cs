@@ -11,6 +11,9 @@ namespace MiningSimulator.Ores
         [SerializeField] private GodBossData data;
         [SerializeField] private Animator animator;
         private CharacterController motor;
+        private MonsterTerrainController terrainMotor;
+        private SlopeVisualLean slopeLean;
+        private bool movedOnTerrain;
         private Collider playerBody;
         private bool landingIgnoresPlayer, originalPlayerIgnore;
         private CharacterHealth health, player;
@@ -41,6 +44,7 @@ namespace MiningSimulator.Ores
         private void Awake()
         {
             motor = GetComponent<CharacterController>(); health = GetComponent<CharacterHealth>();
+            terrainMotor = new MonsterTerrainController(motor);
             if (!animator) animator = GetComponentInChildren<Animator>();
             if (animator) animator.applyRootMotion = false;
             health.Died += Die;
@@ -65,6 +69,7 @@ namespace MiningSimulator.Ores
         public void Initialize(MonsterSpawnZone owner, CharacterHealth target, int day,int appearance=1,float shrineStrength=0)
         {
             RestorePlayerCollision();
+            terrainMotor.Reset();
             zone = owner; player = target; EncounterDay = day;
             playerBody = player ? player.GetComponent<Collider>() : null;
             playerMotor = player ? player.GetComponent<PlayerController1>() : null;
@@ -92,8 +97,10 @@ namespace MiningSimulator.Ores
         private void Update()
         {
             if(WorldActorVisibility.ShouldPause(this))return;
-            if(TryGetComponent<GameData.Player.Script.SurvivorEnemyStatus>(out var abilityStatus)&&abilityStatus.Airborne)return;
+            if(health && health.EnemyStatus && health.EnemyStatus.Airborne)
+            { terrainMotor.Reset(); return; }
             if (!data || Time.deltaTime <= 0) return;
+            movedOnTerrain = false;
             // Re-enabling collisions while overlapping would push the player or
             // put the boss back onto their head. Wait until both bodies separate.
             if (landingIgnoresPlayer && CurrentAction != Action.Jump &&
@@ -147,15 +154,34 @@ namespace MiningSimulator.Ores
                 }
                 if (elapsed >= duration + data.recovery) Begin(Action.Chase, "Idle", 1, 0);
             }
-            if (CurrentAction != Action.Jump)
+            if (CurrentAction != Action.Jump && !movedOnTerrain &&
+                !terrainMotor.TryMove(Vector3.zero, Time.deltaTime, player.transform.position))
             {
                 gravity = motor.isGrounded ? -2 : Mathf.Max(-30, gravity + Physics.gravity.y * Time.deltaTime);
                 motor.Move(Vector3.up * gravity * Time.deltaTime);
             }
         }
+        private void OnControllerColliderHit(ControllerColliderHit hit) => terrainMotor?.RecordGroundContact(hit);
+
+        private void LateUpdate()
+        {
+            if (CurrentAction == Action.Jump || CurrentAction == Action.Dead || !animator ||
+                !animator.isActiveAndEnabled || !terrainMotor.HasVisualSupport ||
+                (health.EnemyStatus && health.EnemyStatus.Airborne))
+            {
+                slopeLean?.Reset();
+                return;
+            }
+
+            if (slopeLean == null && terrainMotor.VisualGroundNormal.y >= .9999f) return;
+            slopeLean ??= new SlopeVisualLean(transform);
+            slopeLean.Update(terrainMotor.VisualGroundNormal);
+        }
+
         private void Chase()
         {
             if(!player.IsTargetable){SetAnimation("Idle",1);return;}
+            if (terrainMotor.IsTraversing) { Pursue(true); return; }
             float distance = FlatDistance(player.transform.position);
             if (health.Health < health.MaxHealth && Time.time >= nextRoar && Time.time >= nextRoarCheck)
             {
@@ -177,7 +203,7 @@ namespace MiningSimulator.Ores
                     jumpTarget = landing.point;
                 Begin(Action.Windup, "Idle", 1, data.jumpWindup); return;
             }
-            if (distance <= data.meleeRange)
+            if (distance <= data.meleeRange && !terrainMotor.DifferentTier(player.transform.position))
             {
                 bool punch = Random.value < .5f;
                 var strike = punch ? data.punch : data.swipe;
@@ -189,10 +215,18 @@ namespace MiningSimulator.Ores
         private void Pursue(bool animate)
         {
             float distance=FlatDistance(player.transform.position);
-            if(distance<=motor.radius+.75f)return;
+            if(distance<=motor.radius+.75f&&!terrainMotor.DifferentTier(player.transform.position))return;
             if (distance >= data.startRunningDistance) running = true;
             else if (distance <= data.stopRunningDistance) running = false;
             if(animate)SetAnimation(running ? "Run" : "Walk", 1);
+            float speed = (running ? data.runSpeed : data.walkSpeed) *
+                (health.EnemyStatus ? health.EnemyStatus.MovementMultiplier : 1f);
+            if (terrainMotor.TryPursue(player.transform.position, data.meleeRange, false, out var direct))
+            {
+                Face(player.transform.position);
+                movedOnTerrain = terrainMotor.TryMove(direct * speed, Time.deltaTime, player.transform.position);
+                if (movedOnTerrain) return;
+            }
             var navigation = WorldNavigationGrid.Instance;
             if (navigation && navigation.HasBaked && !pathPending && Time.time >= nextPath)
             {
@@ -207,7 +241,7 @@ namespace MiningSimulator.Ores
             }
             Face(destination);
             Vector3 direction = destination - transform.position; direction.y = 0;
-            motor.Move(direction.normalized * (running ? data.runSpeed : data.walkSpeed) * (TryGetComponent<SurvivorEnemyStatus>(out var status)?status.MovementMultiplier:1) * Time.deltaTime);
+            motor.Move(direction.normalized * speed * Time.deltaTime);
         }
         private void OnPath(bool success, List<Vector3> points)
         {
@@ -299,6 +333,8 @@ namespace MiningSimulator.Ores
         }
         private void OnDisable()
         {
+            slopeLean?.Reset();
+            terrainMotor?.Reset();
             RestorePlayerCollision();
             if (WorldNavigationGrid.Instance) WorldNavigationGrid.Instance.Cancel(this);
             pathPending = false;

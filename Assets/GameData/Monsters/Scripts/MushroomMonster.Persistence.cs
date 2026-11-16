@@ -5,11 +5,13 @@ namespace MiningSimulator.Ores
     {
         public MonsterSpawnZone.SavedMonster CaptureWorld(string prefab)
         {
-            var s=new MonsterSpawnZone.SavedMonster{kind=1,prefab=prefab,level=Level,boss=IsBoss,summon=IsGodSummon,damage=scaledDamage,burnDamage=scaledBurnDamage};s.CaptureHealth(health);return s;
+            var s=new MonsterSpawnZone.SavedMonster{kind=1,prefab=prefab,level=Level,boss=IsBoss,summon=IsGodSummon,damage=scaledDamage,burnDamage=scaledBurnDamage,hasLifetime=encounterVisuals!=null,lifetime=CombatTimeRemaining};s.CaptureHealth(health);return s;
         }
         public void RestoreWorld(MonsterSpawnZone.SavedMonster s)
         {
             Level=Mathf.Max(1,s.level);scaledDamage=s.damage;scaledBurnDamage=s.burnDamage;s.RestoreHealth(health);
+            if (s.kind == 0) nextAttack = Time.time + Mathf.Max(0f, s.cooldown);
+            if (s.kind == 0 || s.hasLifetime) encounterVisuals?.RestoreExpiry(s.lifetime);
             // Old normal Bread enemies can have damage rolled with the old shared stat multiplier.
             if (!s.boss && !s.summon && SpeciesData is BreadMonsterData bread)
             {

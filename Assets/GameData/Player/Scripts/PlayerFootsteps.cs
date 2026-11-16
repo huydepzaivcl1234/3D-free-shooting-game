@@ -17,6 +17,9 @@ namespace GameData.Player.Script
         [SerializeField] private bool useAnimationEvents=true;
         [SerializeField,Min(.1f)] private float walkStepMeters=1.2f,runStepMeters=1.6f;
         [SerializeField,Min(.05f)] private float minimumInterval=.18f;
+        [SerializeField] private float animatedFootContactHeight = .34f;
+        [SerializeField, Min(.01f)] private float animatedFootLift = .04f;
+        private bool leftLifted, rightLifted;
         [SerializeField,Range(0,1)] private float volume=.65f,jumpVolume=.5f,landingVolume=.7f;
         private PlayerController1 controller;
         private GameData.Player.Manager.InputManager input;
@@ -36,10 +39,18 @@ namespace GameData.Player.Script
             if(!audioManager)audioManager=FindAnyObjectByType<MiningAudioManager>();
             var animator=GetComponent<Animator>();
             if(animator&&animator.isHuman){if(!leftFoot)leftFoot=animator.GetBoneTransform(HumanBodyBones.LeftFoot);if(!rightFoot)rightFoot=animator.GetBoneTransform(HumanBodyBones.RightFoot);}
+            if (!leftFoot || !rightFoot)
+            {
+                foreach (var bone in GetComponentsInChildren<Transform>(true))
+                {
+                    if (!leftFoot && bone.name == "Foot.L") leftFoot = bone;
+                    if (!rightFoot && bone.name == "Foot.R") rightFoot = bone;
+                }
+            }
             controller.Jumped+=OnJump;controller.Landed+=OnLanding;
         }
         private void OnDestroy(){if(controller){controller.Jumped-=OnJump;controller.Landed-=OnLanding;}}
-        private void OnEnable(){previousPosition=transform.position;travelled=0;nextStep=nextLanding=0;}
+        private void OnEnable(){previousPosition=transform.position;travelled=0;nextStep=nextLanding=0;leftLifted=rightLifted=false;}
         private bool Active=>isActiveAndEnabled&&Time.timeScale>0&&controller&&controller.enabled&&(!health||health.Health>0);
         public void OnFootstep(AnimationEvent evt){
             if(!useAnimationEvents||evt!=null&&evt.animatorClipInfo.weight<.3f)return;
@@ -75,13 +86,47 @@ namespace GameData.Player.Script
             var surface=SurfaceAt(point);var clip=surface!=null&&surface.landing?surface.landing:landingClip;if(!clip)return;
             audioManager.PlayWorldSfx(clip,point,landingVolume*Mathf.Clamp(speed/5f,.4f,1f));nextLanding=Time.time+.2f;nextStep=Time.time+.16f;LandingsPlayed++;
         }
-        private void Update(){
-            Vector3 delta=transform.position-previousPosition;previousPosition=transform.position;delta.y=0;
-            if(useAnimationEvents)return;
-            float distance=delta.magnitude;
-            if(!Active||!controller.IsGrounded||input&&input.Move.sqrMagnitude<.01f||distance>Mathf.Max(2,Time.deltaTime*20)){travelled=0;return;}
-            travelled+=distance;float stride=input&&input.Run&&(!stamina||stamina.CanRun)?runStepMeters:walkStepMeters;
-            if(travelled>=stride){travelled=Mathf.Repeat(travelled,stride);PlayStep(right);}
+        private void LateUpdate()
+        {
+            Vector3 delta = transform.position - previousPosition;
+            previousPosition = transform.position;
+            delta.y = 0f;
+            if (useAnimationEvents) return;
+            float distance = delta.magnitude;
+            if (!Active || !controller.IsGrounded || input && input.Move.sqrMagnitude < .01f ||
+                distance > Mathf.Max(2f, Time.deltaTime * 20f))
+            {
+                travelled = 0f;
+                leftLifted = rightLifted = false;
+                return;
+            }
+
+            if (leftFoot && rightFoot)
+            {
+                // Track the final blended pose so the sound follows the foot through gait changes.
+                bool leftDown = WasPlanted(leftFoot, ref leftLifted);
+                bool rightDown = WasPlanted(rightFoot, ref rightLifted);
+                Vector3 planarVelocity = body ? body.linearVelocity : Vector3.zero;
+                planarVelocity.y = 0f;
+                if (planarVelocity.sqrMagnitude > .04f && (leftDown || rightDown))
+                    PlayStep(rightDown && (!leftDown || right));
+                return;
+            }
+
+            travelled += distance;
+            float stride = input && input.Run && (!stamina || stamina.CanRun) ? runStepMeters : walkStepMeters;
+            if (travelled < stride) return;
+            travelled = Mathf.Repeat(travelled, stride);
+            PlayStep(right);
+        }
+
+        private bool WasPlanted(Transform foot, ref bool lifted)
+        {
+            float height = transform.InverseTransformPoint(foot.position).y;
+            if (height >= animatedFootContactHeight + animatedFootLift) lifted = true;
+            if (!lifted || height > animatedFootContactHeight) return false;
+            lifted = false;
+            return true;
         }
     }
 }

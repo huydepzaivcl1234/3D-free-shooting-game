@@ -110,8 +110,11 @@ namespace MiningSimulator.Ores
             Choice("Camera AA", "Khử răng cưa",()=>new[]{"None","FXAA","SMAA"}[options.Values.aaMode],()=>options.Values.aaMode=(options.Values.aaMode+1)%3);
             Choice("AA quality", "Chất lượng AA",()=>new[]{"Low","Medium","High"}[options.Values.aaQuality],()=>options.Values.aaQuality=(options.Values.aaQuality+1)%3);
             Choice("MSAA", "MSAA",()=>options.SupportsMsaa?options.Values.msaa+"x":"Deferred: unavailable",()=>options.Values.msaa=options.Values.msaa==8?1:options.Values.msaa*2,()=>options.SupportsMsaa);
-            Choice("Shadow cascades", "Phân tầng bóng",()=>options.Values.cascades.ToString(),()=>options.Values.cascades=options.Values.cascades%4+1);
-            Slider("Shadow distance", "Khoảng cách bóng",0,150,()=>options.Values.shadowDistance,v=>options.Values.shadowDistance=v,"0 m");
+            Choice("Shadow cascades", "Phân tầng bóng",
+                ()=>Mathf.Min(options.Values.cascades,options.ShadowCascadeLimit).ToString(),
+                ()=>options.Values.cascades=Mathf.Min(options.Values.cascades,options.ShadowCascadeLimit)%options.ShadowCascadeLimit+1);
+            Slider("Shadow distance", "Khoảng cách bóng",0,options.ShadowDistanceLimit,
+                ()=>Mathf.Min(options.Values.shadowDistance,options.ShadowDistanceLimit),v=>options.Values.shadowDistance=v,"0 m");
             Slider("Render scale", "Tỷ lệ render",.5f,1.5f,()=>options.Values.renderScale,v=>options.Values.renderScale=v,"0.00x");
             Label("POST-PROCESSING", "HIỆU ỨNG HẬU KỲ");
             Choice("Bloom", "Ánh sáng Bloom",()=>OnOff(options.Values.bloom),()=>options.Values.bloom=!options.Values.bloom);

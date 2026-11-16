@@ -11,6 +11,8 @@ namespace MiningSimulator.Ores
         [SerializeField] private GameData.Player.Script.SurvivorCombatData coreData;
         public PlayerStatsData Data => data;
         public GameData.Player.Script.SurvivorCombatData CoreData => coreData;
+        public PlayerSupportUpgrades Support { get; private set; }
+        public float OvertimeMultiplier => Support ? Support.OvertimeMultiplier : 1f;
         public SurvivorAbilityData AbilityData=>coreData&&coreData.abilities?coreData.abilities:SurvivorAbilityData.Fallback;
         public float CardAttractionRadius=>UpgradeLevel(SurvivorUpgradeId.CardMagnet)>0?Mathf.Max(0,AbilityData.common.cardMagnet.radius.At(UpgradeLevel(SurvivorUpgradeId.CardMagnet))):0;
         private int[] upgradeLevels=new int[(int)SurvivorUpgradeId.Count];
@@ -41,12 +43,14 @@ namespace MiningSimulator.Ores
             appliedBodySize = size;
         }
         public float MovementMultiplier=>1f+UpgradeBonus(SurvivorUpgradeId.MoveSpeed)*.01f;
-        public float WalkSpeed=>(coreData?coreData.walkSpeed:3f)*MovementMultiplier+(itemEffects?Mathf.Max(0,itemEffects.PlayerMoveSpeedBonus):0);
-        public float RunSpeed=>WalkSpeed+3f;
+        public float WalkSpeed => ((coreData ? coreData.walkSpeed : 3f) * MovementMultiplier +
+            (itemEffects ? Mathf.Max(0, itemEffects.PlayerMoveSpeedBonus) : 0)) * OvertimeMultiplier;
+        public float RunSpeed => (WalkSpeed + (3f + (Support ? Support.RunBonus : 0f)) * OvertimeMultiplier) *
+            (Support ? Support.SprintMultiplier : 1f);
         public int BossesDefeated {get;private set;}
         public float BossBonusHealth {get;private set;}
         public void RecordBossKill(){BossesDefeated++;int lv=UpgradeLevel(SurvivorUpgradeId.BossVitality);var rule=AbilityData.rare.bossVitality;if(lv>0&&BossesDefeated%Mathf.Max(1,rule.killsPerReward)==0)BossBonusHealth+=Mathf.Max(0,rule.maxHealthReward.At(lv));dirty=true;SaveProgress();}
-        public float BonusRunSpeed=>Mathf.Max(0,WalkSpeed-(coreData?coreData.walkSpeed:3f));
+        public float BonusRunSpeed => Mathf.Max(0, RunSpeed - (coreData ? coreData.walkSpeed : 3f) - 3f);
         private float UpgradeDamage(float physical,float extraPhysicalDamage=0)
         {
             float basePhysical=coreData?coreData.damage:physical;
@@ -54,16 +58,19 @@ namespace MiningSimulator.Ores
             int fleet=UpgradeLevel(SurvivorUpgradeId.FleetForce),power=UpgradeLevel(SurvivorUpgradeId.PowerSurge),flat=UpgradeLevel(SurvivorUpgradeId.FlatPower);
             float extra=(fleet>0?Mathf.Floor(BonusRunSpeed/Mathf.Max(.01f,AbilityData.common.momentum.bonusSpeedPerStack))*AbilityData.common.momentum.damagePerStack.At(fleet):0)+(flat>0?AbilityData.uncommon.flatPower.bonus.At(flat):0);
             if(power>0)extra+=AbilityData.common.powerSurge.flatDamage.At(power)+AbilityData.common.powerSurge.bonusAttackDamagePercent*.01f*Mathf.Max(0,physical-basePhysical+extra);
-            return (physical+extra)*(1+(HasTitan?AbilityData.epic.titanBlessing.physicalDamagePercent*.01f:0));
+            return (physical + extra) * (1 + (HasTitan ? AbilityData.epic.titanBlessing.physicalDamagePercent * .01f : 0)) *
+                (1f + (Support ? Support.MissingHealthPercent : 0f) * .01f) * OvertimeMultiplier;
         }
         private RuneUpgradeProgress runeUpgrades;
         public RuneUpgradeProgress RuneUpgrades => runeUpgrades ??= new RuneUpgradeProgress(
             Resources.Load<RuneUpgradeData>("RuneUpgradeData"),
             Application.isPlaying ? GameSave.GetString(RuneUpgradeProgress.SaveKey, "") : null);
-        public float Armor => (DefenseAtLevel(coreData != null ? coreData.armor : data != null ? data.armor : 0f,
-            coreData != null ? coreData.armorPerLevel : data != null ? data.armorPerLevel : 0f) + RuneUpgrades.Bonus(RuneStat.Armor)+legacyArmorFlat)*(1+UpgradeBonus(SurvivorUpgradeId.Armor)*.01f);
-        public float MagicResistance => (DefenseAtLevel(coreData != null ? coreData.magicResistance : data != null ? data.magicResistance : 0f,
-            coreData != null ? coreData.magicResistancePerLevel : data != null ? data.magicResistancePerLevel : 0f) + RuneUpgrades.Bonus(RuneStat.MagicResistance)+legacyMagicFlat)*(1+UpgradeBonus(SurvivorUpgradeId.MagicResistance)*.01f);
+        public float Armor => ((DefenseAtLevel(coreData != null ? coreData.armor : data != null ? data.armor : 0f,
+            coreData != null ? coreData.armorPerLevel : data != null ? data.armorPerLevel : 0f) + RuneUpgrades.Bonus(RuneStat.Armor)+legacyArmorFlat) *
+            (1+UpgradeBonus(SurvivorUpgradeId.Armor)*.01f) + (Support ? Support.Level(SupportUpgradeId.Armor) + Support.LeechArmor : 0f)) * OvertimeMultiplier;
+        public float MagicResistance => ((DefenseAtLevel(coreData != null ? coreData.magicResistance : data != null ? data.magicResistance : 0f,
+            coreData != null ? coreData.magicResistancePerLevel : data != null ? data.magicResistancePerLevel : 0f) + RuneUpgrades.Bonus(RuneStat.MagicResistance)+legacyMagicFlat) *
+            (1+UpgradeBonus(SurvivorUpgradeId.MagicResistance)*.01f) + (Support ? Support.Level(SupportUpgradeId.MagicArmor) : 0f)) * OvertimeMultiplier;
         private float DefenseAtLevel(float baseline, float growth) => (float)System.Math.Min(float.MaxValue,
             (double)CombatDamage.NonNegative(baseline) + (double)CombatDamage.NonNegative(growth) * (Level - 1));
         private MiningItemSystem itemEffects;
@@ -71,10 +78,10 @@ namespace MiningSimulator.Ores
         private float DamagePotionMultiplier => itemEffects != null ? itemEffects.PlayerDamageMultiplier : 1f;
         private float AttackSpeedPotionMultiplier => itemEffects != null ? itemEffects.PlayerAttackSpeedMultiplier : 1f;
         public float MaxHealth=>CalculateMaxHealth();
-        public float CalculateMaxHealth(float addedPercent=0) => ((((coreData != null ? Mathf.Max(1f, coreData.maxHealth) :
-            data != null ? Mathf.Max(1, data.maxHealth + Mathf.Max(0, data.healthPerLevel) * (Level - 1)) : 100) * (1f + CardHealthPercent * .01f) + CardHealth) * (1f + RuneUpgrades.Bonus(RuneStat.Health) * .01f) * (itemEffects != null ? itemEffects.PlayerHealthMultiplier : 1f) + (coreData==null&&gunSpecials?gunSpecials.HunterBonusHealth:0))*(1f+(addedPercent+UpgradeBonus(SurvivorUpgradeId.MaxHealth))*.01f)+BossBonusHealth)*(1+(HasTitan?AbilityData.epic.titanBlessing.maxHealthPercent*.01f:0))+TitanFlatHealth;
+        public float CalculateMaxHealth(float addedPercent=0) => (((((coreData != null ? Mathf.Max(1f, coreData.maxHealth) :
+            data != null ? Mathf.Max(1, data.maxHealth + Mathf.Max(0, data.healthPerLevel) * (Level - 1)) : 100) * (1f + CardHealthPercent * .01f) + CardHealth) * (1f + RuneUpgrades.Bonus(RuneStat.Health) * .01f) * (itemEffects != null ? itemEffects.PlayerHealthMultiplier : 1f) + (coreData==null&&gunSpecials?gunSpecials.HunterBonusHealth:0))*(1f+(addedPercent+UpgradeBonus(SurvivorUpgradeId.MaxHealth))*.01f)+BossBonusHealth)*(1+(HasTitan?AbilityData.epic.titanBlessing.maxHealthPercent*.01f:0))+TitanFlatHealth) * OvertimeMultiplier;
         public float ResistanceScale => Mathf.Max(.01f, coreData != null ? coreData.resistanceScale : data != null ? data.resistanceScale : 100f);
-        public float RegenAmount => (Mathf.Max(0, coreData != null ? coreData.regenAmount : data != null ? data.regenAmount : 0f)+legacyRegenFlat)*(1+UpgradeBonus(SurvivorUpgradeId.Regeneration)*.01f);
+        public float RegenAmount => (Mathf.Max(0, coreData != null ? coreData.regenAmount : data != null ? data.regenAmount : 0f)+legacyRegenFlat)*(1+UpgradeBonus(SurvivorUpgradeId.Regeneration)*.01f) * OvertimeMultiplier;
         public float RegenInterval => Mathf.Max(.1f, coreData != null ? coreData.regenInterval : data != null ? data.regenInterval : 5f);
         public float ConsumableDamageReduction => itemEffects != null ? itemEffects.PlayerDamageReduction : 0f;
         public float ConsumableMonsterTrueDamageFraction => itemEffects != null ? itemEffects.MonsterTrueDamageFraction : 0f;
@@ -84,7 +91,9 @@ namespace MiningSimulator.Ores
             if(!coreData)return CalculateAttackSpeed(addedPercent);
             float quickening=UpgradeLevel(SurvivorUpgradeId.Quickening)>0?AbilityData.uncommon.quickening.bonus.At(UpgradeLevel(SurvivorUpgradeId.Quickening)):0;
             float bonus=addedPercent+CardAttackSpeedPercent+CardAttackSpeed*100f+(AttackSpeedPotionMultiplier-1)*100f+RuneUpgrades.Bonus(RuneStat.AttackSpeed)+UpgradeBonus(SurvivorUpgradeId.AttackSpeed)+quickening;
-            return coreData.AttacksPerSecond(bonus)*(TryGetComponent<PotionPlayerEffect>(out var potionStatus)?potionStatus.AttackSpeedMultiplier:1f);
+            float supportSpeed = Support ? Support.Level(SupportUpgradeId.AttackSpeed) + Support.MissingHealthPercent : 0f;
+            return coreData.AttacksPerSecond(bonus) * (1f + supportSpeed * .01f) * OvertimeMultiplier *
+                (TryGetComponent<PotionPlayerEffect>(out var potionStatus) ? potionStatus.AttackSpeedMultiplier : 1f);
         }
         public float CalculateAttackSpeed(float addedPercent=0) => coreData?CalculateAttacksPerSecond(addedPercent)/Mathf.Max(.01f,coreData.attackSpeed): Mathf.Max(.1f, ((coreData != null ? coreData.attackSpeedMultiplier : data != null ? data.attackSpeed : 1f) * (1f + CardAttackSpeedPercent * .01f) + CardAttackSpeed) * AttackSpeedPotionMultiplier * (1f + RuneUpgrades.Bonus(RuneStat.AttackSpeed) * .01f)*(1f+(addedPercent+UpgradeBonus(SurvivorUpgradeId.AttackSpeed)+(UpgradeLevel(SurvivorUpgradeId.Quickening)>0?AbilityData.uncommon.quickening.bonus.At(UpgradeLevel(SurvivorUpgradeId.Quickening)):0))*.01f));
         // Retain old flat bonuses for v2 saves; new cards add percentage points.
@@ -106,7 +115,7 @@ namespace MiningSimulator.Ores
         public float CalculateSurvivorDamage(float baseDamage,float extraPhysicalDamage=0) =>
             UpgradeDamage(((Mathf.Max(0,baseDamage)+GunLevelDamageBonus)*(1f+CardDamagePercent*.01f)+CardDamage)
             *GunDamageMultiplier*DamagePotionMultiplier*(1f+RuneUpgrades.Bonus(RuneStat.Damage)*.01f),extraPhysicalDamage);
-        public float GunBulletSpeedMultiplier => 1f + (GunCardBulletSpeedPercent+UpgradeBonus(SurvivorUpgradeId.ProjectileSpeed)) * .01f;
+        public float GunBulletSpeedMultiplier => (1f + (GunCardBulletSpeedPercent+UpgradeBonus(SurvivorUpgradeId.ProjectileSpeed)) * .01f) * OvertimeMultiplier;
         public bool AddCardBonus(MiningCardChoice choice, float amount)
         {
             if (amount <= 0f || float.IsNaN(amount) || float.IsInfinity(amount)) return false;
@@ -157,6 +166,9 @@ namespace MiningSimulator.Ores
         }
         private void Awake()
         {
+            if (Application.isPlaying && TryGetComponent<SurvivorAutoCombat>(out _))
+                Support = TryGetComponent<PlayerSupportUpgrades>(out var support)
+                    ? support : gameObject.AddComponent<PlayerSupportUpgrades>();
             authoredBodyScale=transform.localScale;
             gunSpecials=GetComponent<GameData.Player.Script.GunSpecialUpgrades>();
             itemEffects = FindFirstObjectByType<MiningItemSystem>(FindObjectsInactive.Include);

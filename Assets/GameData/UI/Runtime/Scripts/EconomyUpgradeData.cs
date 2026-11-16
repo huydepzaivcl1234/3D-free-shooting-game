@@ -87,7 +87,7 @@ namespace MiningSimulator.Ores
     }
 
     /// <summary>Designer-owned values for mining upgrades.</summary>
-    [CreateAssetMenu(fileName = "EconomyUpgradeData", menuName = "Mining Simulator/Game Data/Upgrades")]
+    [CreateAssetMenu(fileName = "EconomyUpgradeData", menuName = "Survivor/Game Data/Upgrades")]
     [UnityEngine.Scripting.APIUpdating.MovedFrom(true,"MiningSimulator.Ores","Assembly-CSharp","MiningUpgradeData")]
     public sealed class EconomyUpgradeData : ScriptableObject
     {

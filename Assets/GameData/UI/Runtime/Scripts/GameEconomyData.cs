@@ -4,7 +4,7 @@ using UnityEngine.Serialization;
 namespace MiningSimulator.Ores
 {
     /// <summary>Shared wallet presentation and camera settings.</summary>
-    [CreateAssetMenu(fileName = "GameEconomyData", menuName = "Mining Simulator/Game Data/Shared")]
+    [CreateAssetMenu(fileName = "GameEconomyData", menuName = "Survivor/Game Data/Shared")]
     [UnityEngine.Scripting.APIUpdating.MovedFrom(true,"MiningSimulator.Ores","Assembly-CSharp","MiningGameData")]
     public sealed class GameEconomyData : ScriptableObject
     {

@@ -16,7 +16,7 @@ MonoBehaviour:
   - surface: 0
     layers:
       serializedVersion: 2
-      m_Bits: 1024
+      m_Bits: 1032
     footsteps:
     - {fileID: 8300000, guid: 3a4c0e933ddd9824d94773ae53c1a37d, type: 3}
     - {fileID: 8300000, guid: 38fe7bdac250d7044aeebfc8e9b0df2e, type: 3}

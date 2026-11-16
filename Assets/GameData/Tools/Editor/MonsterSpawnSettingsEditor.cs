@@ -8,9 +8,14 @@ public sealed class MonsterSpawnSettingsEditor : Editor
     {
         DrawDefaultInspector();
         var settings=(MonsterSpawnSettings)target;
-        EditorGUILayout.HelpBox("A fresh run spawns one monster, then waits for its defeat. Regular spawns then arrive one at a time. Day/night and player level do not accelerate this pacing.",MessageType.Info);
-        EditorGUILayout.LabelField($"Interval: first kill {settings.IntervalAfterKills(1):0.##}s | 10 kills {settings.IntervalAfterKills(10):0.##}s | 50 kills {settings.IntervalAfterKills(50):0.##}s | 120 kills {settings.IntervalAfterKills(120):0.##}s",EditorStyles.wordWrappedLabel);
-        EditorGUILayout.HelpBox("Distances are metres. Yellow = minimum, cyan = maximum. Existing boss/summon rules remain separate after the first kill.",MessageType.Info);
+        if (settings.PhaseAt(0) != null)
+            EditorGUILayout.HelpBox("Survivor uses Stage Phases for regular spawns. Monster availability comes from each world schedule; overtime has its own settings.", MessageType.Info);
+        else
+        {
+            EditorGUILayout.HelpBox("A fresh run spawns one monster, then waits for its defeat. Regular spawns then arrive one at a time. Day/night and player level do not accelerate this pacing.",MessageType.Info);
+            EditorGUILayout.LabelField($"Interval: first kill {settings.IntervalAfterKills(1):0.##}s | 10 kills {settings.IntervalAfterKills(10):0.##}s | 50 kills {settings.IntervalAfterKills(50):0.##}s | 120 kills {settings.IntervalAfterKills(120):0.##}s",EditorStyles.wordWrappedLabel);
+        }
+        EditorGUILayout.HelpBox("Distances are metres. Yellow = minimum, cyan = maximum.",MessageType.Info);
         if(GUI.changed)SceneView.RepaintAll();
     }
     [DrawGizmo(GizmoType.Selected|GizmoType.NonSelected)]

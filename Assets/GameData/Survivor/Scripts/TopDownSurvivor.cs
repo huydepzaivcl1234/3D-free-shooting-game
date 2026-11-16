@@ -77,6 +77,30 @@ namespace GameData.Player.Script
         private float displayedYaw, displayedAngle, displayedDistance, collisionDistance;
         private float yawVelocity, pitchVelocity, zoomVelocity, collisionVelocity;
         private readonly RaycastHit[] cameraHits=new RaycastHit[64];
+        private int cameraObstacles, solidMap;
+
+        private float ClearDistance(Vector3 origin, Vector3 direction, float distance, float radius)
+        {
+            int count = Physics.SphereCastNonAlloc(origin, radius, direction, cameraHits, distance,
+                cameraObstacles, QueryTriggerInteraction.Ignore);
+            for (int i = 0; i < count; i++)
+            {
+                var hit = cameraHits[i];
+                if (hit.collider.transform.IsChildOf(transform) || hit.collider.GetComponentInParent<CharacterHealth>())
+                    continue;
+                distance = Mathf.Min(distance, Mathf.Max(0f, hit.distance - .04f));
+            }
+            return distance;
+        }
+
+        private Vector3 SweepCamera(Vector3 origin, Vector3 desired, float radius)
+        {
+            Vector3 delta = desired - origin;
+            float distance = delta.magnitude;
+            if (distance < .001f) return origin;
+            Vector3 direction = delta / distance;
+            return origin + direction * ClearDistance(origin, direction, distance, radius);
+        }
 
         public Vector3 MovementDirection(Vector2 move)
         {
@@ -88,6 +112,8 @@ namespace GameData.Player.Script
             combat=GetComponent<SurvivorAutoCombat>();
             health=GetComponent<CharacterHealth>();
             if(!viewCamera)viewCamera=Camera.main;
+            solidMap = LayerMask.GetMask("Ground", "MapObstacle");
+            cameraObstacles = solidMap | 1;
             Cursor.lockState=CursorLockMode.None;Cursor.visible=true;
         }
         private void FixedUpdate()
@@ -132,7 +158,15 @@ namespace GameData.Player.Script
             displayedDistance=Mathf.SmoothDamp(displayedDistance,cameraDistance,ref zoomVelocity,.14f,Mathf.Infinity,dt);
             Quaternion rotation=Quaternion.Euler(displayedAngle,displayedYaw,0);
             Vector3 playerPosition=ragdoll&&ragdoll.IsRagdoll?ragdoll.FollowPosition-Vector3.up*.9f:transform.position;
-            Vector3 focus=playerPosition+Vector3.up*pivotHeight+Quaternion.Euler(0,displayedYaw,0)*Vector3.forward*lookAhead;
+            viewCamera.orthographic = false;
+            viewCamera.fieldOfView = fieldOfView;
+            viewCamera.nearClipPlane = .1f;
+            viewCamera.farClipPlane = 250;
+            float halfHeight = viewCamera.nearClipPlane * Mathf.Tan(fieldOfView * .5f * Mathf.Deg2Rad);
+            float radius = Mathf.Max(.22f, Mathf.Sqrt(viewCamera.nearClipPlane * viewCamera.nearClipPlane +
+                halfHeight * halfHeight * (1f + viewCamera.aspect * viewCamera.aspect)) + .04f);
+            Vector3 pivot = playerPosition + Vector3.up * pivotHeight;
+            Vector3 focus = pivot + Quaternion.Euler(0, displayedYaw, 0) * Vector3.forward * lookAhead;
             // Rotation stays in the physics step, so Rigidbody interpolation remains valid.
             bool teleport=initialized&&(playerPosition-previousPlayerPosition).sqrMagnitude>64;
             previousPlayerPosition=playerPosition;
@@ -140,28 +174,33 @@ namespace GameData.Player.Script
             else if(dt>0)smoothedFocus=Vector3.SmoothDamp(smoothedFocus,focus,ref followVelocity,followSmoothTime,Mathf.Infinity,dt);
             initialized=true;
             Vector3 backwards=-(rotation*Vector3.forward);
-            float distance=displayedDistance;
-            int count=Physics.SphereCastNonAlloc(smoothedFocus,.22f,backwards,cameraHits,distance,~0,QueryTriggerInteraction.Ignore);
-            for(int i=0;i<count;i++)
-            {
-                var collider=cameraHits[i].collider;
-                if(collider.transform.IsChildOf(transform) || collider.GetComponentInParent<CharacterHealth>())continue;
-                distance=Mathf.Min(distance,Mathf.Max(.35f,cameraHits[i].distance-.12f));
-            }
+            // Look-ahead and follow lag can place the focus across a wall from the player.
+            Vector3 clearFocus = SweepCamera(pivot, smoothedFocus, radius);
+            float distance = ClearDistance(clearFocus, backwards, displayedDistance, radius);
             // Retract immediately for safety, but ease back out after an obstruction clears.
             if(distance<collisionDistance){collisionDistance=distance;collisionVelocity=0;}
             else collisionDistance=Mathf.SmoothDamp(collisionDistance,distance,ref collisionVelocity,.18f,Mathf.Infinity,dt);
-            var cameraPosition = smoothedFocus + backwards * collisionDistance;
+            var cameraPosition = clearFocus + backwards * collisionDistance;
+            // Sphere casts can miss a collider that already overlaps their origin.
+            if (Physics.CheckSphere(cameraPosition, radius, solidMap, QueryTriggerInteraction.Ignore) ||
+                Physics.Linecast(pivot, cameraPosition, solidMap, QueryTriggerInteraction.Ignore))
+            {
+                cameraPosition = SweepCamera(pivot, cameraPosition, radius);
+                if (Physics.CheckSphere(cameraPosition, radius, solidMap, QueryTriggerInteraction.Ignore))
+                    cameraPosition = pivot;
+                collisionDistance = Mathf.Min(collisionDistance, Vector3.Distance(clearFocus, cameraPosition));
+                collisionVelocity = 0f;
+            }
             if (shakeElapsed < shakeSeconds)
             {
                 shakeElapsed = Mathf.Min(shakeSeconds, shakeElapsed + dt);
                 float progress = shakeElapsed / shakeSeconds;
                 float offset = Mathf.Sin(progress * 4 * Mathf.PI) * (1 - progress) * shakeDistance;
-                cameraPosition += rotation * Vector3.right * offset;
+                cameraPosition = SweepCamera(cameraPosition,
+                    cameraPosition + rotation * Vector3.right * offset, radius);
             }
             viewCamera.transform.SetPositionAndRotation(cameraPosition, rotation);
-            viewCamera.orthographic=false;viewCamera.fieldOfView=fieldOfView;
-            viewCamera.nearClipPlane=.1f;viewCamera.farClipPlane=250;
+
         }
     }
 }

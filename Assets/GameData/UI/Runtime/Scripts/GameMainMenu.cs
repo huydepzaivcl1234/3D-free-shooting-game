@@ -2,6 +2,7 @@ using PrimeTween;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
 namespace MiningSimulator.Ores
@@ -41,6 +42,7 @@ namespace MiningSimulator.Ores
         [Header("Main buttons")]
         [SerializeField] private Button playButton;
         [SerializeField] private Button shopButton;
+        [SerializeField] private Button questButton;
         [SerializeField] private Button settingsButton;
         [SerializeField] private Button exitButton;
         [SerializeField] private GemShopPanel shopPanel;
@@ -84,8 +86,12 @@ namespace MiningSimulator.Ores
         private Vector2 cardHomePosition;
         private readonly MiningAnimatedCurrencyValue gemCounter = new();
         private UiPanelCoordinator panelCoordinator;
+        private MiningQuestPanel questPanel;
+        private bool openedFromGameplay;
+        private int openedFrame = -1;
 
         public bool IsOpen => isActiveAndEnabled && gameObject.activeInHierarchy;
+        internal bool HasSharedSettings => sharedSettingsPanel != null;
 
         private void Awake()
         {
@@ -150,6 +156,21 @@ namespace MiningSimulator.Ores
             }
         }
 
+        private void LateUpdate()
+        {
+            bool modalOpen = panelCoordinator != null && panelCoordinator.HasOpenModal;
+            canvasGroup.interactable = !closing && !modalOpen;
+            canvasGroup.blocksRaycasts = !closing && !modalOpen;
+            if (Keyboard.current?.escapeKey.wasPressedThisFrame != true || openedFrame == Time.frameCount)
+                return;
+            if (panelCoordinator != null && panelCoordinator.IsOpenPanel(shopPanel?.PanelRoot))
+                shopPanel.Close();
+            else if (panelCoordinator != null && panelCoordinator.IsOpenPanel(questPanel?.PanelRoot))
+                questPanel.Close();
+            else if (openedFromGameplay && simpleMenu && !modalOpen && !closing)
+                FinishPlay();
+        }
+
         private void OnDisable()
         {
             RemoveListeners();
@@ -167,7 +188,7 @@ namespace MiningSimulator.Ores
 
         public void Play()
         {
-            if (closing || data == null)
+            if (closing || data == null || (panelCoordinator != null && panelCoordinator.HasOpenModal))
             {
                 return;
             }
@@ -219,11 +240,13 @@ namespace MiningSimulator.Ores
 
         public void OpenFromGameplay()
         {
-            if (gameObject.activeSelf)
+            if (!enabled || gameObject.activeSelf)
             {
                 return;
             }
 
+            openedFromGameplay = true;
+            openedFrame = Time.frameCount;
             gameObject.SetActive(true);
             ResolvePlaySelection();
             playSelection?.MarkGameStarted();
@@ -242,7 +265,7 @@ namespace MiningSimulator.Ores
 
         public void OpenSettings()
         {
-            if (closing)
+            if (closing || (panelCoordinator != null && panelCoordinator.HasOpenModal))
             {
                 return;
             }
@@ -258,10 +281,14 @@ namespace MiningSimulator.Ores
 
         public void OpenShop()
         {
-            if (!closing)
-            {
-                shopPanel?.Open();
-            }
+            if (IsOpen && !closing && (panelCoordinator == null || !panelCoordinator.HasOpenModal))
+                shopPanel?.Open(shopButton);
+        }
+
+        public void OpenQuest()
+        {
+            if (IsOpen && !closing && (panelCoordinator == null || !panelCoordinator.HasOpenModal))
+                questPanel?.OpenFromMenu(questButton);
         }
 
         public void CloseSettings()
@@ -273,7 +300,7 @@ namespace MiningSimulator.Ores
 
         public void ExitGame()
         {
-            if (closing)
+            if (closing || (panelCoordinator != null && panelCoordinator.HasOpenModal))
             {
                 return;
             }
@@ -425,6 +452,13 @@ namespace MiningSimulator.Ores
 
         private void RefreshLocalization()
         {
+            SetText(shopButton != null ? shopButton.GetComponentInChildren<TextMeshProUGUI>(true) : null,
+                "MENU_SHOP_LABEL", data != null ? data.EnglishShopLabel : "Shop");
+            if (questButton != null && questButton.GetComponentInChildren<TextMeshProUGUI>(true) is { } questLabel)
+                questLabel.text = MiningLocalization.Text("QUESTS", "NHIỆM VỤ");
+            if (simpleMenu && openedFromGameplay && playButton != null &&
+                playButton.GetComponentInChildren<TextMeshProUGUI>(true) is { } simplePlayLabel)
+                simplePlayLabel.text = MiningLocalization.Text("Resume", "Tiếp tục");
             if(simpleMenu)return; // Keep the designer-authored button labels editable.
             if (data == null)
             {
@@ -456,6 +490,7 @@ namespace MiningSimulator.Ores
             RemoveListeners();
             playButton?.onClick.AddListener(Play);
             shopButton?.onClick.AddListener(OpenShop);
+            questButton?.onClick.AddListener(OpenQuest);
             settingsButton?.onClick.AddListener(OpenSettings);
             exitButton?.onClick.AddListener(ExitGame);
             confirmExitButton?.onClick.AddListener(ConfirmExit);
@@ -471,6 +506,7 @@ namespace MiningSimulator.Ores
         {
             playButton?.onClick.RemoveListener(Play);
             shopButton?.onClick.RemoveListener(OpenShop);
+            questButton?.onClick.RemoveListener(OpenQuest);
             settingsButton?.onClick.RemoveListener(OpenSettings);
             exitButton?.onClick.RemoveListener(ExitGame);
             confirmExitButton?.onClick.RemoveListener(ConfirmExit);
@@ -498,6 +534,8 @@ namespace MiningSimulator.Ores
                 wallet = FindFirstObjectByType<PlayerWallet>(FindObjectsInactive.Include);
             }
             ResolvePlaySelection();
+            if (shopPanel == null) shopPanel = FindFirstObjectByType<GemShopPanel>(FindObjectsInactive.Include);
+            questPanel = FindFirstObjectByType<MiningQuestPanel>(FindObjectsInactive.Include);
             gameData ??= wallet != null ? wallet.GameData : null;
             if(simpleMenu)return data && canvasGroup && card && playButton && settingsButton && exitButton && sharedSettingsPanel;
             return data != null && canvasGroup != null && card != null &&
@@ -572,6 +610,7 @@ namespace MiningSimulator.Ores
             {
                 shopButton.interactable = value;
             }
+            if (questButton != null) questButton.interactable = value;
             settingsButton.interactable = value;
             exitButton.interactable = value;
         }

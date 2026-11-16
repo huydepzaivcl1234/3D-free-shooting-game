@@ -23,13 +23,38 @@ namespace MiningSimulator.Ores
             world == MonsterSpawnWorld.World2 ? world2Monsters : world1Monsters;
 
         [Header("Boss Shrines per map")]
-        [Min(0)] public int world1BossShrineCount = 1;
-        [Min(0)] public int world2BossShrineCount = 1;
+        [Min(0)] public int world1BossShrineCount = 4;
+        [Min(0)] public int world2BossShrineCount = 4;
         public int BossShrinesFor(MonsterSpawnWorld world) =>
             Mathf.Max(0, world == MonsterSpawnWorld.World2 ? world2BossShrineCount : world1BossShrineCount);
 
         [Header("Survivor stage and overtime")]
         [Min(1)] public float stageSeconds = 600;
+
+        [System.Serializable]
+        public sealed class StagePhase
+        {
+            [Min(0)] public float startSecond;
+            [Min(1)] public int livingLimit = 25;
+            [Min(.1f)] public float spawnInterval = 4;
+            [Min(1)] public int batchSize = 1;
+            [Min(0)] public float movementBonusPercent;
+        }
+
+        [SerializeField] private StagePhase[] stagePhases;
+        [Min(1)] public float ordinaryHealthAtStageEnd = 1.75f;
+
+        public StagePhase PhaseAt(float elapsed)
+        {
+            StagePhase active = null;
+            if (stagePhases == null) return active;
+            foreach (var phase in stagePhases)
+                if (phase != null && elapsed >= phase.startSecond &&
+                    (active == null || phase.startSecond >= active.startSecond))
+                    active = phase;
+            return active;
+        }
+
         public MushroomMonster overtimeEnemy;
         [Min(1)] public int overtimeBatchSize = 3;
         [Min(.1f)] public float overtimeInterval = 3, overtimeMinimumInterval = .55f;

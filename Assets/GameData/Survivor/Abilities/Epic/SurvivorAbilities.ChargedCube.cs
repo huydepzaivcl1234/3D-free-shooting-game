@@ -12,6 +12,7 @@ namespace GameData.Player.Script
             public CharacterHealth target;
             public Vector3 destination;
             public float remaining, damage, radius;
+            public int repeatLevel;
             public CombatDamageType type;
             public bool active;
         }
@@ -71,14 +72,25 @@ namespace GameData.Player.Script
             chargingCube.transform.Rotate(Vector3.up,rule.rotationDegreesPerSecond*dt,Space.World);
             if(CubeChargeProgress<1)return;
             var target=Nearest(transform.position,combat.AttackRange,null);if(!target)return;
+            LaunchCube(target, rule.damage.At(level), 0);
+            int repeat = RollAbilityRepeat();
+            if (repeat > 0) LaunchCube(target, rule.damage.At(level), repeat);
+            cubeCharge=0;chargingCube.SetActive(false);
+        }
+
+        private void LaunchCube(CharacterHealth target, float damage, int repeat)
+        {
             CubeShot shot=cubeShots.Find(s=>!s.active);
             if(shot==null){shot=new CubeShot{visual=CreateCube("Arcane Cube - projectile",true)};cubeShots.Add(shot);}
-            shot.target=target;shot.destination=CubeTargetPoint(target);shot.damage=rule.damage.At(level);shot.radius=CubeBlastRadius;shot.type=rule.damageType;
-            shot.visual.transform.SetPositionAndRotation(chargingCube.transform.position,chargingCube.transform.rotation);
+            shot.target=target;shot.destination=CubeTargetPoint(target);shot.damage=damage;shot.radius=CubeBlastRadius;shot.type=Settings.epic.chargedCube.damageType;
+            shot.repeatLevel = repeat;
+            Vector3 origin = chargingCube.transform.position;
+            if (repeat > 0) origin += transform.right * Mathf.Clamp(CubeFullSize * .35f, .15f, .6f);
+            shot.visual.transform.SetPositionAndRotation(origin,chargingCube.transform.rotation);
             shot.visual.transform.localScale=Vector3.one*CubeFullSize;shot.visual.SetActive(true);shot.active=true;
             shot.remaining=Mathf.Max(.01f,Vector3.Distance(shot.visual.transform.position,shot.destination)/Mathf.Max(.01f,combat.ProjectileSpeed));
-            PlayCubeSound(false,shot.visual.transform.position);
-            CubesLaunched++;cubeCharge=0;chargingCube.SetActive(false);
+            if (repeat == 0) PlayCubeSound(false,shot.visual.transform.position);
+            CubesLaunched++;
         }
         private void StepCubeShots(float dt)
         {
@@ -91,7 +103,13 @@ namespace GameData.Player.Script
                 shot.active=false;shot.visual.SetActive(false);PlayCubeSound(true,shot.destination);cubeVictims.Clear();
                 foreach(var target in CharacterHealth.ActiveMonsters)
                     if(target&&target.isActiveAndEnabled&&target.IsTargetable&&(CubeTargetPoint(target)-shot.destination).sqrMagnitude<=shot.radius*shot.radius)cubeVictims.Add(target);
-                foreach(var target in cubeVictims)if(target&&target.IsTargetable)target.DealDamageWithTrueBonus(shot.damage+Mathf.Max(0,target.MaxHealth-target.Health)*.1f,shot.type,gameObject,0,false,false,true);
+                foreach (var target in cubeVictims)
+                {
+                    if (!target || !target.IsTargetable) continue;
+                    float damage = shot.damage + Mathf.Max(0, target.MaxHealth - target.Health) * .1f;
+                    if (shot.repeatLevel > 0) damage = RepeatedAbilityDamage(damage, shot.repeatLevel);
+                    target.DealDamageWithTrueBonus(damage, shot.type, gameObject, 0, false, false, true);
+                }
             }
         }
         private void ResetCube()

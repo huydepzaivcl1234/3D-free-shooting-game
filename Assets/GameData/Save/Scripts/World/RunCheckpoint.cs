@@ -13,13 +13,63 @@ namespace MiningSimulator.Ores
         [Serializable] public sealed class Shot {public int kind;public string owner,target;public Vector3 position,scale;public Quaternion rotation;public RunStateFields.Bag fields;}
         [Serializable] public sealed class State {public int version=1;public List<MonsterItemPickup.SavedDrop> loot=new();public List<WorldItemPickup.SavedDrop> items=new();public string random;public List<MiningItemSystem.SavedEffect> effects;public List<Actor> actors=new();public List<Shot> shots=new();public List<MiningWorldCard.SavedCard> cards=new();
             public List<MiningCardSystem.SavedQueuedUpgrade> queuedUpgrades;
+            public List<XPGemManager.Gem> xpGems;
+            public PlayerSupportUpgrades.SavedCombat supportCombat;
         }
         public static bool IsRestoring {get;set;}
+
+        internal static void MoveSavedActor(State state, string id, Vector3 position)
+        {
+            if (state == null || string.IsNullOrEmpty(id)) return;
+            foreach (var actor in state.actors)
+            {
+                if (actor.id != id) continue;
+                Vector3 offset = position - actor.position;
+                actor.position = position;
+                actor.cameraPosition += offset;
+                foreach (var body in actor.bodies) body.position += offset;
+                break;
+            }
+        }
+
+        internal static void RegroundOnNewTerrain(State state, TerrainGenerator terrain)
+        {
+            if (state == null) return;
+            XPGemManager.Reground(state.xpGems, terrain);
+            foreach (var actor in state.actors)
+            {
+                Vector3 point = terrain.RegroundActor(actor.position);
+                Vector3 delta = point - actor.position;
+                actor.position = point;
+                actor.cameraPosition += delta;
+                foreach (var body in actor.bodies) body.position += delta;
+            }
+            foreach (var drop in state.loot)
+                if (terrain.TrySample(drop.position, out var ground, out _))
+                {
+                    drop.position.y = ground.y + Mathf.Max(.08f, drop.position.y - drop.groundY);
+                    drop.groundY = ground.y;
+                }
+            foreach (var item in state.items)
+                if (terrain.TrySample(item.position, out var ground, out _))
+                    item.position.y = ground.y + .2f;
+            foreach (var card in state.cards)
+            {
+                if (!terrain.TrySample(card.groundAnchor, out var ground, out _)) continue;
+                float offset = ground.y - card.groundAnchor.y;
+                card.groundAnchor.y += offset;
+                card.landingPosition.y += offset;
+                card.position.y += offset;
+            }
+        }
+
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]static void Reset()=>IsRestoring=false;
         static string Path(Transform child,Transform root){string path="";while(child&&child!=root){path=child.name+(path.Length>0?"/"+path:"");child=child.parent;}return path;}
         static Transform At(Transform root,string path)=>string.IsNullOrEmpty(path)?root:root.Find(path);
         public static State Capture(CharacterHealth player){
             var state=new State();var actors=RunStateFields.Actors();
+            if(player.TryGetComponent<XPGemManager>(out var gems))state.xpGems=gems.Capture();
+            state.supportCombat = PlayerSupportUpgrades.For(player)?.CaptureCombat();
             foreach(var pair in actors){var h=pair.Value;if(h.gameObject.scene!=player.gameObject.scene)continue;
                 var a=new Actor{id=pair.Key,health=h.Health,position=h.transform.position,rotation=h.transform.rotation,fields=RunStateFields.CaptureComponents(h.gameObject)};
                 if(h.TryGetComponent<MushroomMonster>(out var mushroom))a.boss=RunStateFields.Capture(RunStateFields.Get<BossSkillRuntime>(mushroom,"bossSkill"),"healUsed","healRemaining","strikes","hasteStacks","playerDamageProgress");
@@ -47,6 +97,8 @@ namespace MiningSimulator.Ores
         }
         public static void Restore(State state,CharacterHealth player){
             if(state==null)return;if(state.version!=1)throw new InvalidOperationException("Unsupported run checkpoint; preserve original save");
+            if(player.TryGetComponent<XPGemManager>(out var gems))gems.Restore(state.xpGems);
+            else if(state.xpGems!=null&&state.xpGems.Count>0&&player.TryGetComponent<PlayerStats>(out var stats))XPGemManager.For(stats).Restore(state.xpGems);
             var actors=RunStateFields.Actors();
             var inventory=UnityEngine.Object.FindAnyObjectByType<MiningItemSystem>();if(inventory)inventory.RestoreRuntimeEffects(state.effects);
             // First place all targets, then reconnect sources and projectiles. Loading never awards damage/kills.
@@ -84,6 +136,7 @@ namespace MiningSimulator.Ores
             foreach(var drop in UnityEngine.Object.FindObjectsByType<WorldItemPickup>(FindObjectsSortMode.None)){drop.gameObject.SetActive(false);UnityEngine.Object.Destroy(drop.gameObject);}
             foreach(var drop in state.loot)MonsterItemPickup.RestoreRuntime(drop,player);
             foreach(var drop in state.items)WorldItemPickup.RestoreRuntime(drop);
+            PlayerSupportUpgrades.For(player)?.RestoreCombat(state.supportCombat);
             if(!string.IsNullOrEmpty(state.random))UnityEngine.Random.state=JsonUtility.FromJson<UnityEngine.Random.State>(state.random);
             Physics.SyncTransforms();
         }

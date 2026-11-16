@@ -29,14 +29,12 @@ namespace MiningSimulator.Ores
         public string FireState=>Data?Data.combat.fireState:"Throw";
         public float ReleaseMoment=>Data?Data.combat.releaseMoment:.45f;
         public float Range=>Data?Data.combat.rangedRange*transform.lossyScale.x:0;
-        public bool CanReach(Transform target){
-            if(!IsReady||!target)return false;var c=target.GetComponent<Collider>();var start=releasePoint?releasePoint.position:transform.position+Vector3.up;var ray=(c?c.bounds.center:target.position)-start;
-            int count=Physics.RaycastNonAlloc(start,ray.normalized,sightHits,ray.magnitude,~0,QueryTriggerInteraction.Ignore);
-            if(count==sightHits.Length)return false;for(int i=0;i<count;i++)if(!sightHits[i].transform.IsChildOf(transform)&&!sightHits[i].transform.IsChildOf(target)&&!sightHits[i].collider.GetComponentInParent<CharacterHealth>())return false;return true;
-        }
+        public bool CanReach(Transform target) => IsReady && target &&
+            MonsterProjectileSight.CanReach(releasePoint ? releasePoint.position : transform.position + Vector3.up,
+                transform, target, sightHits);
         public void PrepareThrow(Transform target){
             preparedTarget=target?target.GetComponent<CharacterHealth>():null;
-            preparedKind=Random.Range(0,3);
+            preparedKind=monster.IsSupportAlly ? 2 : Random.Range(0,3);
             if(preparedKind==0){
                 CharacterHealth ally=null;float distance=Data.healingRange*Data.healingRange;bool wounded=false;
                 foreach(var h in CharacterHealth.ActiveMonsters){

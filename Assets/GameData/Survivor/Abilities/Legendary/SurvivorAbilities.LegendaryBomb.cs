@@ -6,11 +6,11 @@ namespace GameData.Player.Script
 {
     public sealed partial class SurvivorAbilities
     {
-        private int bombHits;
+        private int bombHits, bombRepeatLevel;
         private float bombCooldown, bombFlight, regenFxTime;
         private Vector3 bombAim, bombOrigin, bombLanding;
         private bool bombInFlight, bombApplyingDamage;
-        private GameObject bombModel, bombSmoke, regenerationRing;
+        private GameObject bombModel, repeatBombModel, bombSmoke, regenerationRing;
         private MiningAudioManager bombAudio;
         private readonly List<CharacterHealth> bombVictims = new();
 
@@ -49,6 +49,7 @@ namespace GameData.Player.Script
 
                 bombInFlight = true;
                 bombFlight = 0;
+                bombRepeatLevel = RollAbilityRepeat();
                 PlayBombSound(rule.launchSound, bombOrigin, rule.launchVolume);
                 RenderBomb();
                 return;
@@ -65,6 +66,11 @@ namespace GameData.Player.Script
             bombCooldown = Mathf.Max(0, rule.cooldown);
             if (bombModel)
                 bombModel.SetActive(false);
+            if (repeatBombModel)
+                repeatBombModel.SetActive(false);
+
+            int repeat = bombRepeatLevel;
+            bombRepeatLevel = 0;
 
             bombImpactPosition = bombLanding;
             PlaySurvivorEffect(ref bombSmoke, rule.smokePrefab, bombLanding, rule.smokeScale);
@@ -84,6 +90,9 @@ namespace GameData.Player.Script
 
                     float damage = rule.damage.At(level) + victim.MaxHealth * rule.enemyMaxHealthPercent * .01f;
                     victim.DealDamageWithTrueBonus(damage, rule.damageType, gameObject, 0, abilityProc: true);
+                    if (repeat > 0 && victim.IsTargetable)
+                        victim.DealDamageWithTrueBonus(RepeatedAbilityDamage(damage, repeat), rule.damageType,
+                            gameObject, 0, abilityProc: true);
                 }
             }
             finally
@@ -127,6 +136,16 @@ namespace GameData.Player.Script
             bombModel.transform.SetPositionAndRotation(position, Quaternion.AngleAxis(bombFlight * rule.tumbleDegreesPerSecond, new Vector3(1, .35f, .5f)));
             bombModel.transform.localScale = Vector3.one * rule.modelSize;
             bombModel.SetActive(true);
+            if (bombRepeatLevel > 0)
+            {
+                if (!repeatBombModel) repeatBombModel = Instantiate(rule.model);
+                Vector3 offset = Vector3.Cross(Vector3.up, (bombLanding - bombOrigin).normalized);
+                if (offset.sqrMagnitude < .01f) offset = transform.right;
+                float spread = rule.modelSize * .7f * (1f - descent);
+                repeatBombModel.transform.SetPositionAndRotation(position + offset.normalized * spread, bombModel.transform.rotation);
+                repeatBombModel.transform.localScale = bombModel.transform.localScale;
+                repeatBombModel.SetActive(true);
+            }
         }
 
         private float bombImpactTime;
@@ -200,10 +219,11 @@ namespace GameData.Player.Script
 
         private void ResetBomb()
         {
-            bombHits = 0;
+            bombHits = bombRepeatLevel = 0;
             bombCooldown = bombFlight = bombImpactTime = regenFxTime = 0;
             bombInFlight = false;
             if (bombModel) bombModel.SetActive(false);
+            if (repeatBombModel) repeatBombModel.SetActive(false);
             if (bombSmoke) bombSmoke.SetActive(false);
             if (regenerationRing) regenerationRing.SetActive(false);
         }
@@ -211,6 +231,7 @@ namespace GameData.Player.Script
         private void DestroyBomb()
         {
             if (bombModel) Destroy(bombModel);
+            if (repeatBombModel) Destroy(repeatBombModel);
             if (bombSmoke) Destroy(bombSmoke);
             if (regenerationRing) Destroy(regenerationRing);
         }

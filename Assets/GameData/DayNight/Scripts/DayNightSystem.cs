@@ -62,6 +62,7 @@ namespace MiningSimulator.Ores
         private Vignette vignette;
         private Tonemapping tonemapping;
         private PlayerGraphicsOptions graphicsOptions;
+        private MapAtmosphere mapAtmosphere;
 
         public Volume CinematicVolume => cinematicVolume;
         public bool ControlsCinematicPostProcessing => data != null && data.ControlCinematicPostProcessing;
@@ -109,6 +110,7 @@ namespace MiningSimulator.Ores
         private void Awake()
         {
             InitializeIfNeeded();
+            mapAtmosphere = FindAnyObjectByType<MapAtmosphere>();
             PrepareRuntimeSkybox();
             PrepareCinematicVolume();
             EnsureCelestialDisc();
@@ -380,8 +382,10 @@ namespace MiningSimulator.Ores
                         data.NightShadowStrength, data.DayShadowStrength, daylightAmount);
                     sun.shadowBias = data.ShadowBias;
                     sun.shadowNormalBias = data.ShadowNormalBias;
-                    QualitySettings.shadowDistance = Mathf.Lerp(
-                        data.NightShadowDistance, data.DayShadowDistance, daylightAmount);
+                    float shadowDistance = Mathf.Lerp(data.NightShadowDistance, data.DayShadowDistance, daylightAmount);
+                    QualitySettings.shadowDistance = graphicsOptions
+                        ? Mathf.Min(shadowDistance, graphicsOptions.ShadowDistanceLimit)
+                        : shadowDistance;
                 }
             }
 
@@ -409,7 +413,7 @@ namespace MiningSimulator.Ores
             RenderSettings.ambientLight = ambient * ambientShimmer;
             ApplyCinematicPostProcessing(daylightAmount, goldenAmount);
             ApplySkybox(daylightAmount);
-            if (data.ControlFog)
+            if (data.ControlFog && (!mapAtmosphere || !mapAtmosphere.isActiveAndEnabled))
             {
                 RenderSettings.fog = true;
                 RenderSettings.fogColor = fogColor;

@@ -254,7 +254,6 @@ namespace MiningSimulator.Ores
             gameData ??= wallet != null ? wallet.GameData : null;
             RegisterBaseHud();
             RemoveListeners();
-            gameplayOpenButton?.onClick.AddListener(Open);
             closeButton?.onClick.AddListener(Close);
             if (productViews.Count == 0)
             {
@@ -299,9 +298,15 @@ namespace MiningSimulator.Ores
             spinning = false;
         }
 
-        public void Open()
+        internal RectTransform PanelRoot => panelRoot;
+        private Button menuOpener;
+
+        public void Open() => Open(null);
+
+        internal void Open(Button opener)
         {
             if (panelRoot == null) return;
+            menuOpener = opener;
             if (!spinning)
             {
                 status = ShopStatus.None;
@@ -325,9 +330,14 @@ namespace MiningSimulator.Ores
         public void Close()
         {
             if (spinning) return;
-            audioManager?.PlayBackgroundMusic();
+            if (menuOpener != null && menuOpener.gameObject.activeInHierarchy)
+                audioManager?.PlayMainMenuMusic();
+            else
+                audioManager?.PlayBackgroundMusic();
             if (panelCoordinator != null) panelCoordinator.ClosePanel(panelRoot);
             else panelRoot?.gameObject.SetActive(false);
+            if (menuOpener != null) EventSystem.current?.SetSelectedGameObject(menuOpener.gameObject);
+            menuOpener = null;
         }
 
         public void BuyRareGiftBox()
@@ -828,7 +838,6 @@ namespace MiningSimulator.Ores
 
         private void RemoveListeners()
         {
-            gameplayOpenButton?.onClick.RemoveListener(Open);
             closeButton?.onClick.RemoveListener(Close);
             buyRareGiftButton?.onClick.RemoveListener(BuyRareGiftBox);
             foreach (ShopProductView productView in productViews)

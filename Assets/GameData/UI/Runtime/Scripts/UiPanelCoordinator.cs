@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace MiningSimulator.Ores
 {
@@ -53,7 +54,17 @@ namespace MiningSimulator.Ores
                 ownsGameplayPause=false;Time.timeScale=timeScaleBeforeModal;
             }
         }
+        internal bool RestoreAfterDeathSlowMotion(float deathScale, float gameplayScale)
+        {
+            if (!ownsGameplayPause || !BlocksGameplay) return false;
+            if (Mathf.Approximately(timeScaleBeforeModal, deathScale))
+                timeScaleBeforeModal = gameplayScale;
+            return true;
+        }
+
         private bool initialized;
+        private GameMainMenu pauseMenu;
+        private bool hideSurvivorSettingsShortcut;
         private readonly Dictionary<RectTransform, Vector2> additionalPanelHomes = new();
         private RectTransform transparentBackdropPanel;
         private CanvasGroup backdropGroup;
@@ -79,7 +90,10 @@ namespace MiningSimulator.Ores
 
         public GameUiData UiData => uiData;
         public bool IsMainMenuOpen => mainMenuOpen;
-        public bool BlocksGameplay => mainMenuOpen || activeModal != null;
+        public bool BlocksGameplay => mainMenuOpen || activeModal != null || RunCheckpoint.IsRestoring;
+        internal void SyncCheckpointPause() => SyncGameplayPause();
+        internal bool HasOpenModal => activeModal != null;
+        internal bool IsOpenPanel(RectTransform panel) => panel != null && activeModal == panel;
 
         /// <summary>The anvil view is a world interaction, not a movement-blocking modal.</summary>
         public void RegisterWorldUpgradePanel(RectTransform panel)
@@ -114,6 +128,7 @@ namespace MiningSimulator.Ores
             if (shopButton != null)
             {
                 shopMenuButton = shopButton;
+                HideMenuShortcuts();
             }
         }
 
@@ -124,6 +139,7 @@ namespace MiningSimulator.Ores
                 questMenuButton = questButton;
                 if (dock == null && questButton.parent != null && questButton.parent.name == "Docker")
                     dock = questButton.parent as RectTransform;
+                HideMenuShortcuts();
             }
             if (panel != null) questPanel = panel;
         }
@@ -132,12 +148,18 @@ namespace MiningSimulator.Ores
         private void Awake()
         {
             ResolveOptionalHudReferences();
+            HideMenuShortcuts();
             CacheHomePositions();
         }
 
         private void Start()
         {
             ResolveOptionalHudReferences();
+            HideMenuShortcuts();
+            pauseMenu = FindFirstObjectByType<GameMainMenu>(FindObjectsInactive.Include);
+            hideSurvivorSettingsShortcut = pauseMenu != null && pauseMenu.HasSharedSettings &&
+                audioMenuButton != null && audioMenuButton.GetComponentInParent<Canvas>(true)?.name == "Survivor HUD Canvas";
+            if (hideSurvivorSettingsShortcut) audioMenuButton.gameObject.SetActive(false);
             CacheHomePositions();
             activeModal = activeModal != null ? activeModal : FindActiveModal();
             if (activeModal != null)
@@ -155,6 +177,14 @@ namespace MiningSimulator.Ores
                 HideModalImmediately(inventoryPanel);
                 HideModalImmediately(questPanel);
             }
+        }
+
+        private void Update()
+        {
+            if (hideSurvivorSettingsShortcut && !pauseMenu.IsOpen && !BlocksGameplay && Time.timeScale > 0f &&
+                !TowerPlacement.IsPlacing &&
+                Keyboard.current?.escapeKey.wasPressedThisFrame == true)
+                pauseMenu.OpenFromGameplay();
         }
 
         public void OpenPanel(RectTransform panel)
@@ -324,8 +354,25 @@ namespace MiningSimulator.Ores
 
             dock ??= canvas.Find("Docker") as RectTransform;
             gemHud ??= canvas.Find("Gem HUD") as RectTransform;
-            shopMenuButton ??= canvas.Find("Shop Menu Button") as RectTransform;
-            questMenuButton ??= canvas.Find("Quest Menu Button") as RectTransform;
+            shopMenuButton ??= (dock != null ? dock.Find("Shop Menu Button") : null) as RectTransform
+                ?? canvas.Find("Shop Menu Button") as RectTransform;
+            questMenuButton ??= (dock != null ? dock.Find("Quest Menu Button") : null) as RectTransform
+                ?? canvas.Find("Quest Menu Button") as RectTransform;
+        }
+
+        private void HideMenuShortcuts()
+        {
+            if (shopMenuButton != null) shopMenuButton.gameObject.SetActive(false);
+            if (questMenuButton != null) questMenuButton.gameObject.SetActive(false);
+        }
+
+        private RectTransform VisibleDock()
+        {
+            if (dock == null || (!IsInDock(shopMenuButton) && !IsInDock(questMenuButton))) return dock;
+            foreach (Transform child in dock)
+                if (child.gameObject.activeSelf) return dock;
+            dock.gameObject.SetActive(false);
+            return null;
         }
 
         private RectTransform FindActiveModal()
@@ -347,14 +394,12 @@ namespace MiningSimulator.Ores
             FadeBasePanel(shopPanel, visible);
             FadeBasePanel(pcQuickActions, visible);
             FadeBasePanel(rebirthHud, visible);
-            FadeBasePanel(audioMenuButton, visible);
+            if (!hideSurvivorSettingsShortcut) FadeBasePanel(audioMenuButton, visible);
             FadeBasePanel(npcProgressHud, visible);
-            FadeBasePanel(dock, visible);
+            FadeBasePanel(VisibleDock(), visible);
             if (!IsInDock(inventoryMenuButton)) FadeBasePanel(inventoryMenuButton, visible);
             FadeBasePanel(effectToast, visible);
             FadeBasePanel(gemHud, visible);
-            if (!IsInDock(shopMenuButton)) FadeBasePanel(shopMenuButton, visible);
-            if (!IsInDock(questMenuButton)) FadeBasePanel(questMenuButton, visible);
         }
 
         private bool IsInDock(RectTransform panel) =>
@@ -383,14 +428,12 @@ namespace MiningSimulator.Ores
             SetBasePanelImmediately(shopPanel, visible);
             SetBasePanelImmediately(pcQuickActions, visible);
             SetBasePanelImmediately(rebirthHud, visible);
-            SetBasePanelImmediately(audioMenuButton, visible);
+            if (!hideSurvivorSettingsShortcut) SetBasePanelImmediately(audioMenuButton, visible);
             SetBasePanelImmediately(npcProgressHud, visible);
-            SetBasePanelImmediately(dock, visible);
+            SetBasePanelImmediately(VisibleDock(), visible);
             if (!IsInDock(inventoryMenuButton)) SetBasePanelImmediately(inventoryMenuButton, visible);
             SetBasePanelImmediately(effectToast, visible);
             SetBasePanelImmediately(gemHud, visible);
-            if (!IsInDock(shopMenuButton)) SetBasePanelImmediately(shopMenuButton, visible);
-            if (!IsInDock(questMenuButton)) SetBasePanelImmediately(questMenuButton, visible);
         }
 
         private bool IsExistingHudRoot(Transform root)

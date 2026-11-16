@@ -11,6 +11,7 @@ namespace MiningSimulator.Ores
         private TMP_Text stageTimer, shrinePrompt;
         private Camera stageCamera;
         private GameMainMenu stageMenu;
+        private GameData.Player.Script.SurvivorDailyLoot stageLoot;
         private MonsterSpawnEntry overtimeEntry;
         private int lastDisplayedSeconds = -1;
         private bool displayedOvertime;
@@ -23,7 +24,8 @@ namespace MiningSimulator.Ores
             if (!PlayerHuntMode || !spawnSettings) return;
             stageMenu = FindAnyObjectByType<GameMainMenu>(FindObjectsInactive.Include);
             stageCamera = Camera.main;
-            var hud = new GameObject("Survivor Stage HUD", typeof(Canvas), typeof(CanvasScaler));
+            stageLoot = FindAnyObjectByType<GameData.Player.Script.SurvivorDailyLoot>(FindObjectsInactive.Include);
+            var hud = new GameObject("Survivor Stage HUD", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
             hud.transform.SetParent(transform, false);
             stageCanvas = hud.GetComponent<Canvas>();
             stageCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
@@ -32,20 +34,26 @@ namespace MiningSimulator.Ores
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1920,1080);
             scaler.matchWidthOrHeight = .5f;
-            stageTimer = CreateStageLabel("Stage timer", -22, 240, 62, 31);
+            stageTimer = CreateStageLabel("Stage timer", -24, 300, 59, 38, false);
             shrinePrompt = CreateStageLabel("God Boss prompt", -92, 520, 38, 21);
+            hud.AddComponent<SurvivorPlayHud>().Initialize(this, player, wallet, (RectTransform)stageCanvas.transform);
+            stageTimer.transform.parent.SetAsLastSibling();
+            shrinePrompt.transform.parent.SetAsLastSibling();
         }
 
-        private TMP_Text CreateStageLabel(string name, float y, float width, float height, float fontSize)
+        private TMP_Text CreateStageLabel(string name, float y, float width, float height, float fontSize, bool showBackground = true)
         {
-            var root = new GameObject(name, typeof(RectTransform), typeof(Image)).GetComponent<RectTransform>();
+            var root = new GameObject(name, typeof(RectTransform)).GetComponent<RectTransform>();
             root.SetParent(stageCanvas.transform, false);
             root.anchorMin = root.anchorMax = root.pivot = new Vector2(.5f, 1);
             root.anchoredPosition = new Vector2(0,y);
             root.sizeDelta = new Vector2(width,height);
-            var background = root.GetComponent<Image>();
-            background.color = new Color(.06f,.08f,.11f,.87f);
-            background.raycastTarget = false;
+            if (showBackground)
+            {
+                var background = root.gameObject.AddComponent<Image>();
+                background.color = new Color(.06f,.08f,.11f,.87f);
+                background.raycastTarget = false;
+            }
             var label = new GameObject("Label", typeof(RectTransform), typeof(TextMeshProUGUI)).GetComponent<TMP_Text>();
             label.transform.SetParent(root, false);
             label.rectTransform.anchorMin = Vector2.zero;
@@ -55,13 +63,19 @@ namespace MiningSimulator.Ores
             label.fontSize = fontSize;
             label.alignment = TextAlignmentOptions.Center;
             label.raycastTarget = false;
+            if (!showBackground)
+            {
+                label.fontStyle = FontStyles.Bold;
+                label.outlineColor = new Color32(12, 18, 26, 255);
+                label.outlineWidth = .22f;
+            }
             return label;
         }
 
         private void LateUpdate()
         {
             if (!stageCanvas) return;
-            stageCanvas.enabled = !stageMenu || !stageMenu.IsOpen;
+            stageCanvas.enabled = (!stageMenu || !stageMenu.IsOpen) && (!uiCoordinator || !uiCoordinator.BlocksGameplay);
             if (!stageCanvas.enabled) return;
             bool overtime = IsOvertime;
             int seconds = overtime
@@ -75,15 +89,18 @@ namespace MiningSimulator.Ores
                 displayedLanguage = language;
                 string time = $"{seconds / 60:00}:{seconds % 60:00}";
                 stageTimer.text = overtime ? MiningLocalization.TextKey("SURVIVOR_OVERTIME", "OVERTIME") + "  +" + time : time;
-                stageTimer.color = overtime ? new Color(1,.56f,.42f) : new Color(1,.89f,.65f);
+                stageTimer.color = overtime ? new Color(1,.56f,.42f) : Color.white;
             }
 
-            bool showPrompt = FindNearbyShrine() != null && !(uiCoordinator && uiCoordinator.BlocksGameplay);
-            shrinePrompt.transform.parent.gameObject.SetActive(showPrompt);
-            if (showPrompt)
-                shrinePrompt.text = godBoss
+            string prompt = stageLoot ? stageLoot.ChestPrompt() : null;
+            if (prompt == null && FindNearbyShrine() != null)
+            {
+                prompt = godBoss
                     ? MiningLocalization.TextKey("SURVIVOR_GOD_ALREADY_ACTIVE", "God Boss is already active")
                     : MiningLocalization.TextKey("SURVIVOR_SUMMON_GOD", "[E]  Summon God Boss");
+            }
+            shrinePrompt.transform.parent.gameObject.SetActive(prompt != null);
+            if (prompt != null && shrinePrompt.text != prompt) shrinePrompt.text = prompt;
         }
 
         private void TickOvertime(float dt)

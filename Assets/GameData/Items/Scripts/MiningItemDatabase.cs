@@ -5,7 +5,7 @@ using UnityEngine;
 namespace MiningSimulator.Ores
 {
     /// <summary>Drop, pickup, inventory and save tuning shared by all mining items.</summary>
-    [CreateAssetMenu(fileName = "MiningItemDatabase", menuName = "Mining Simulator/Game Data/Item Database")]
+    [CreateAssetMenu(fileName = "MiningItemDatabase", menuName = "Survivor/Game Data/Item Database")]
     public sealed class MiningItemDatabase : ScriptableObject
     {
         public const int InventoryCapacity = 32;

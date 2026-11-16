@@ -6,7 +6,7 @@ namespace MiningSimulator.Ores
     // One spatial snapshot per frame; no per-enemy overlap query or all-pairs scan.
     internal static class MonsterCrowd
     {
-        private struct Agent { public MushroomMonster owner; public Vector3 position; public float radius; public int next; }
+        private struct Agent { public MushroomMonster owner; public Vector3 position; public float radius; public int next, id; }
         private const float CellSize=2.5f;
         private static readonly Dictionary<Vector2Int,int> cells=new();
         private static readonly List<Agent> agents=new();
@@ -26,7 +26,7 @@ namespace MiningSimulator.Ores
                 var pos=actor.transform.position;var scale=actor.transform.lossyScale;
                 float radius=motor.radius*Mathf.Max(Mathf.Abs(scale.x),Mathf.Abs(scale.z));
                 var key=Cell(pos);int previous=cells.TryGetValue(key,out var head)?head:-1;
-                cells[key]=agents.Count;agents.Add(new Agent{owner=actor,position=pos,radius=radius,next=previous});
+                cells[key]=agents.Count;agents.Add(new Agent{owner=actor,position=pos,radius=radius,next=previous,id=actor.GetHashCode()});
                 largestRadius=Mathf.Max(largestRadius,radius);
             }
         }
@@ -53,7 +53,7 @@ namespace MiningSimulator.Ores
                 if(!cells.TryGetValue(key+new Vector2Int(x,z),out int index))continue;
                 for(;index>=0;index=agents[index].next){
                     var other=agents[index];if(other.owner==actor)continue;
-                    var push=Repulsion(pos,radius,other.position,other.radius,id,other.owner.GetHashCode(),data.crowdPadding);
+                    var push=Repulsion(pos,radius,other.position,other.radius,id,other.id,data.crowdPadding);
                     if(push.sqrMagnitude<.000001f)continue;
                     force+=push;
                     if(++checkedNeighbours>=24)return Vector3.ClampMagnitude(desired+force*data.crowdSeparationStrength,desired.magnitude);

@@ -63,6 +63,7 @@ MonoBehaviour:
     navigationObstacleLayers:
       serializedVersion: 2
       m_Bits: 4294967295
+    rangedOnly: 0
     projectile: {fileID: 0}
     fireState: Fire
     rangedRange: 8
@@ -119,7 +120,7 @@ MonoBehaviour:
   goldGrowthPerLevel: 0.75
   randomStatMultiplier: {x: 0.9, y: 1.1}
   experience: 35
-  gold: 75
+  gold: 35
   armor: 3
   magicResistance: 3
   armorPerLevel: 3

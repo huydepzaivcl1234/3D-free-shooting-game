@@ -4,7 +4,7 @@ using UnityEngine.Audio;
 namespace MiningSimulator.Ores
 {
     /// <summary>Designer-owned music and sound-effect configuration.</summary>
-    [CreateAssetMenu(fileName = "MiningAudioData", menuName = "Mining Simulator/Game Data/Audio")]
+    [CreateAssetMenu(fileName = "MiningAudioData", menuName = "Survivor/Game Data/Audio")]
     public sealed class MiningAudioData : ScriptableObject
     {
         [Header("Background Music")]

@@ -1,7 +1,7 @@
 using UnityEngine;
 namespace MiningSimulator.Ores
 {
-    [CreateAssetMenu(menuName="Mining Simulator/Base/Treasure Chest")]
+    [CreateAssetMenu(menuName="Survivor/Base/Treasure Chest")]
     public sealed class TreasureChestData : ScriptableObject
     {
         public TreasureChest prefab;

@@ -16,7 +16,7 @@ MonoBehaviour:
   minimumPlayerLevelToSpawn: 1
   minimumSpawnDay: 1
   combat:
-    maxHealth: 10
+    maxHealth: 5
     regenAmount: 0
     regenInterval: 1
     attackSpeed: 1.5
@@ -63,6 +63,7 @@ MonoBehaviour:
     navigationObstacleLayers:
       serializedVersion: 2
       m_Bits: 4294967295
+    rangedOnly: 0
     projectile: {fileID: 0}
     fireState: Fire
     rangedRange: 8

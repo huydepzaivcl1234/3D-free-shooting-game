@@ -40,13 +40,13 @@ private Camera viewer;
 private float visibility;
 public void Bind(TreasureChest owner)
         {
-            if(chest!=null){chest.Changed-=Refresh;chest.Paid-=ShowMoney;}
+            if(chest!=null){chest.Changed-=Refresh;}
             MiningLocalization.LanguageChanged-=Refresh;
             chest=owner;
             if(panel==null)Build();
             if(repairPanel==null)BuildRepairButton();
             BindRepairWallet();
-            chest.Changed+=Refresh;chest.Paid+=ShowMoney;
+            chest.Changed+=Refresh;
             MiningLocalization.LanguageChanged+=Refresh;
             var stats=FindAnyObjectByType<PlayerStats>();player=stats!=null?stats.transform:null;
             Refresh();
@@ -268,7 +268,7 @@ private void LateUpdate()
             panel.localScale = new Vector3(scale / Mathf.Max(.001f, Mathf.Abs(parent.x)),
                 scale / Mathf.Max(.001f, Mathf.Abs(parent.y)), scale / Mathf.Max(.001f, Mathf.Abs(parent.z)));
         }
-private void OnDestroy(){if(chest!=null){chest.Changed-=Refresh;chest.Paid-=ShowMoney;}MiningLocalization.LanguageChanged-=Refresh;UnbindRepairWallet();}
+private void OnDestroy(){if(chest!=null){chest.Changed-=Refresh;}MiningLocalization.LanguageChanged-=Refresh;UnbindRepairWallet();}
 
         private void OnDisable()
         {

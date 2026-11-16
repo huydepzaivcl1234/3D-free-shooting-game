@@ -25,22 +25,8 @@ namespace MiningSimulator.Ores
         public float Range => range * Mathf.Max(.01f, transform.lossyScale.x);
         public bool IsReady => projectile != null && muzzle != null && !string.IsNullOrEmpty(fireState);
 
-        public bool CanReach(Transform victim)
-        {
-            if (!IsReady || victim == null) return false;
-            Vector3 ray = HomingMonsterProjectile.AimPoint(victim) - muzzle.position;
-            if (ray.sqrMagnitude < .001f) return true;
-            int count = Physics.RaycastNonAlloc(muzzle.position, ray.normalized, sightHits,
-                ray.magnitude, ~0, QueryTriggerInteraction.Ignore);
-            if (count == sightHits.Length) return false;
-            for (int i = 0; i < count; i++)
-            {
-                Transform obstacle = sightHits[i].transform;
-                if (obstacle.IsChildOf(transform) || obstacle.IsChildOf(victim)) continue;
-                return false;
-            }
-            return true;
-        }
+        public bool CanReach(Transform victim) => IsReady && victim &&
+            MonsterProjectileSight.CanReach(muzzle.position, transform, victim, sightHits);
 
         public void Fire(MushroomMonster owner, Transform victim)
         {

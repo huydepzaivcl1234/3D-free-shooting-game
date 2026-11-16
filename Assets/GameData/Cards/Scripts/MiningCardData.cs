@@ -5,7 +5,7 @@ namespace MiningSimulator.Ores
 {
     // Keep legacy numeric IDs reserved so old bindings never grant a different reward.
     public enum MiningCardChoice { Damage = 0, AttackSpeed = 1, Health = 2, RegenInterval = 3, HealingEffectiveness = 4, GunDamage = 5, Magazine = 6, BulletSpeed = 7 }
-    [CreateAssetMenu(menuName = "Mining Simulator/Card Drops")]
+    [CreateAssetMenu(menuName = "Survivor/Card Drops")]
     public sealed class MiningCardData : ScriptableObject
     {
         public GameData.Player.Script.SurvivorUpgradeData survivorUpgrades;

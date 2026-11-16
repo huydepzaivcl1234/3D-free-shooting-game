@@ -42,7 +42,9 @@ namespace GameData.Player.Script
         private PlayerStats Stats => stats ? stats : stats = GetComponent<PlayerStats>();
         private SurvivorCombatData Core => data;
         public float BaseDamage => Core ? Mathf.Max(0f, Core.damage) : data ? data.damage : 20f;
-        public float AttackRange => (Core ? Mathf.Max(.1f, Core.range) : data ? data.range : 13f)*(1f+(Stats?Stats.UpgradeBonus(SurvivorUpgradeId.AttackRange):0)*.01f);
+        public float AttackRange => (Core ? Mathf.Max(.1f, Core.range) : data ? data.range : 13f) *
+            (1f + (Stats ? Stats.UpgradeBonus(SurvivorUpgradeId.AttackRange) : 0) * .01f) *
+            (Stats ? Stats.OvertimeMultiplier : 1f);
         public float BaseFireRate => Core ? Mathf.Max(.01f,Core.attackSpeed) : data ? Mathf.Max(.01f,data.attackSpeed) : 1f/.65f;
         public float BaseProjectileSpeed => Core ? Mathf.Max(.1f, Core.projectileSpeed) : data ? data.projectileSpeed : 22f;
         private CharacterHealth health;
@@ -51,6 +53,9 @@ namespace GameData.Player.Script
         private GameMainMenu menu;
         private readonly RaycastHit[] hits=new RaycastHit[96];
         private readonly List<Bolt> bolts=new();
+        private readonly Dictionary<GameObject, Stack<Bolt>> freeBolts = new();
+        private int allocatedBolts;
+        private Mesh boltMesh;
         private readonly List<CharacterHealth> splash=new();
         private List<CharacterHealth> volleyTargets;
         private Material material,impactMaterial;
@@ -69,7 +74,15 @@ namespace GameData.Player.Script
         public CharacterHealth CurrentTarget {get;private set;}
         public int VolleysFired {get;private set;}
         public int HitsLanded {get;private set;}
-        public int ActiveProjectiles {get {int count=0;foreach(var b in bolts)if(b.active)count++;return count;}}
+        public int ActiveProjectiles
+        {
+            get
+            {
+                int count = 0;
+                foreach (var bolt in bolts) if (bolt != null) count++;
+                return count;
+            }
+        }
         public float EffectiveDamage=>Stats?Stats.CalculateSurvivorDamage(BaseDamage):BaseDamage;
         public float AttackInterval=>1f/ShotsPerSecond;
         public float ShotsPerSecond=>Stats?Stats.CalculateAttacksPerSecond():data?data.AttacksPerSecond():BaseFireRate;
@@ -79,7 +92,7 @@ namespace GameData.Player.Script
         private int PoolLimit=>Mathf.Max(data.poolCapacity,ProjectileCount*Mathf.CeilToInt(AttackRange/Mathf.Max(.1f,ProjectileSpeed)/AttackInterval+2)+(Stats?Mathf.Clamp(Stats.AbilityData.common.orbBarrage.orbCount,1,99):5));
         public float ProjectileSpeed=>BaseProjectileSpeed*(Stats?Stats.GunBulletSpeedMultiplier:1);
         public bool CanAttack=>enabled&&data&&health&&health.Health>0&&Time.timeScale>0&&!(cards&&cards.IsChoosing)&&!(ui&&ui.BlocksGameplay)&&!(menu&&menu.IsOpen);
-        private sealed class Bolt {public GameObject go,visual,prefab;public Transform transform;public Renderer renderer;public Color color;public TrailRenderer trail;public CharacterHealth target;public float damage,remaining;public bool active,secondary,canBounce,abilityProc;public CombatDamageType type;public ProjectileElement element;public int spawnFrame;}
+        private sealed class Bolt {public GameObject go,visual,prefab;public Transform transform;public Renderer renderer;public Color color;public TrailRenderer trail;public CharacterHealth target;public float damage,remaining;public bool secondary,canBounce,abilityProc,giant;public CombatDamageType type;public ProjectileElement element;public int spawnFrame;}
         private void Awake()
         {
             audioManager=FindAnyObjectByType<MiningAudioManager>();
@@ -166,65 +179,140 @@ namespace GameData.Player.Script
         }
         public void Launch(CharacterHealth target,float damage,bool secondary=false,CombatDamageType type=CombatDamageType.Physical,bool canBounce=true,Vector3? origin=null,bool abilityProc=false,ProjectileElement element=ProjectileElement.None)
         {
-            if(!target||!target.IsTargetable||!pool)return;
+            if (!target || !target.IsTargetable || !pool) return;
+            var support = Stats ? Stats.Support : null;
+            bool giant = false;
+            if (support)
+            {
+                int level = support.Level(SupportUpgradeId.GiantProjectile);
+                giant = level > 0 && Random.value < .1f;
+                if (giant) damage = damage * 1.35f + EffectiveDamage * .15f + level - 1;
+                int crit = support.Level(SupportUpgradeId.ProjectileCrit);
+                if (crit > 0 && Random.value < crit * .01f) damage *= 2f;
+            }
+            LaunchBolt(target, damage, secondary, type, canBounce, origin, abilityProc, element, giant);
+        }
+
+        private void LaunchBolt(CharacterHealth target, float damage, bool secondary, CombatDamageType type,
+            bool canBounce, Vector3? origin, bool abilityProc, ProjectileElement element, bool giant)
+        {
+            if (!target || !target.IsTargetable || !pool) return;
             var prefab=element==ProjectileElement.Fire?data.fireProjectilePrefab:element==ProjectileElement.Ice?data.iceProjectilePrefab:ProjectilePrefab;
-            Bolt bolt=null;foreach(var b in bolts)if(!b.active&&b.prefab==prefab){bolt=b;break;}
-            if(bolt==null)foreach(var b in bolts)if(!b.active){bolt=b;break;}
+            int limit = PoolLimit;
+            Bolt bolt=RentBolt(prefab, limit);
             if(bolt==null)
             {
-                if(bolts.Count>=PoolLimit)return;
-                var go=GameObject.CreatePrimitive(PrimitiveType.Sphere);go.name="Energy bolt";go.transform.SetParent(pool.transform);
-                var collider=go.GetComponent<Collider>();collider.enabled=false;Destroy(collider);
+                if(allocatedBolts>=limit)return;
+                GameObject go;
+                if (!boltMesh)
+                {
+                    go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                    boltMesh = go.GetComponent<MeshFilter>().sharedMesh;
+                    var collider = go.GetComponent<Collider>();
+                    collider.enabled = false;
+                    Destroy(collider);
+                }
+                else
+                {
+                    go = new GameObject("Energy bolt", typeof(MeshFilter), typeof(MeshRenderer));
+                    go.GetComponent<MeshFilter>().sharedMesh = boltMesh;
+                }
+                go.name="Energy bolt";go.transform.SetParent(pool.transform);
                 go.transform.localScale=Vector3.one*data.projectileRadius*2;go.GetComponent<Renderer>().sharedMaterial=material;
                 var trail=go.AddComponent<TrailRenderer>();trail.sharedMaterial=material;trail.time=data.projectileTrailSeconds;trail.startWidth=data.projectileRadius*data.projectileTrailWidth;trail.endWidth=0;trail.minVertexDistance=.04f;trail.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off;
-                bolt=new Bolt{go=go,transform=go.transform,renderer=go.GetComponent<Renderer>(),trail=trail};bolts.Add(bolt);
+                bolt=new Bolt{go=go,transform=go.transform,renderer=go.GetComponent<Renderer>(),trail=trail};
+                allocatedBolts++;
             }
             if(bolt.prefab!=prefab){if(bolt.visual)Destroy(bolt.visual);bolt.visual=prefab?Instantiate(prefab,bolt.transform,false):null;bolt.prefab=prefab;}
             bolt.renderer.enabled=!prefab;bolt.trail.enabled=!prefab;
             Vector3 start=origin??Origin;
-            bolt.active=true;bolt.spawnFrame=Time.frameCount;bolt.go.SetActive(true);bolt.transform.position=start;var direction=Point(target)-start;if(direction.sqrMagnitude>.0001f)bolt.transform.rotation=Quaternion.LookRotation(direction);
+            bolt.spawnFrame=Time.frameCount;bolt.go.SetActive(true);bolt.transform.position=start;var direction=Point(target)-start;if(direction.sqrMagnitude>.0001f)bolt.transform.rotation=Quaternion.LookRotation(direction);
             bolt.target=target;bolt.damage=damage;bolt.secondary=secondary;bolt.type=type;bolt.canBounce=canBounce;bolt.abilityProc=abilityProc;bolt.element=element;
-            bolt.transform.localScale=Vector3.one*ProjectileRadius*2;bolt.trail.time=data.projectileTrailSeconds;bolt.trail.startWidth=ProjectileRadius*data.projectileTrailWidth;
+            bolt.giant = giant;
+            float radius = ProjectileRadius * (giant ? 1.35f : 1f);
+            bolt.transform.localScale = Vector3.one * radius * 2f;
+            bolt.trail.time = data.projectileTrailSeconds;
+            bolt.trail.startWidth = radius * data.projectileTrailWidth;
             Color color=abilityProc?Color.cyan:type==CombatDamageType.True?Color.white:type==CombatDamageType.Magic?new Color(.55f,.65f,1f):secondary?new Color(1f,.9f,.3f):data.projectileColor;
             if(prefab)color=prefab==data.iceProjectilePrefab?new Color(.5f,.95f,1):prefab==data.fireProjectilePrefab?new Color(1,.6f,.08f):prefab==data.toxicProjectilePrefab?new Color(.5f,1,.08f):new Color(.5f,.7f,1);
             boltColor??=new MaterialPropertyBlock();boltColor.SetColor("_BaseColor",color);bolt.color=color;bolt.renderer.SetPropertyBlock(boltColor);
             bolt.trail.SetPropertyBlock(boltColor);bolt.trail.startColor=bolt.trail.endColor=Color.white;
             bolt.remaining=Mathf.Max(.03f,Vector3.Distance(Point(target),start)/ProjectileSpeed);bolt.trail.Clear();
+            bolts.Add(bolt);
         }
+
+        private GameObject PrefabKey(GameObject prefab) => prefab ? prefab : pool;
+
+        private Bolt RentBolt(GameObject prefab, int limit)
+        {
+            if (freeBolts.TryGetValue(PrefabKey(prefab), out var matching) && matching.Count > 0)
+                return matching.Pop();
+            if (allocatedBolts < limit) return null;
+            foreach (var bucket in freeBolts.Values)
+                if (bucket.Count > 0) return bucket.Pop();
+            return null;
+        }
+
+        private void ReleaseBolt(int index)
+        {
+            var bolt = bolts[index];
+            bolts[index] = null;
+            bolt.target = null;
+            bolt.go.SetActive(false);
+            var key = PrefabKey(bolt.prefab);
+            if (!freeBolts.TryGetValue(key, out var bucket))
+                freeBolts.Add(key, bucket = new Stack<Bolt>());
+            bucket.Push(bolt);
+        }
+
         private void StepBolts(float dt)
         {
-            for(int index=0;index<bolts.Count;index++)
+            int activeAtStart = bolts.Count;
+            for(int index=0;index<activeAtStart && index<bolts.Count;index++)
             {
-                var b=bolts[index];if(!b.active||b.spawnFrame==Time.frameCount)continue;
+                var b=bolts[index];if(b==null||b.spawnFrame==Time.frameCount)continue;
                 var target=b.target;
                 if(!target||!target.isActiveAndEnabled||!target.IsTargetable){
                     // Bonus bolts can outlive the enemy killed by an earlier bolt.
                     target=b.secondary?SurvivorAbilities.Nearest(b.transform.position,AttackRange,target):null;
-                    if(!target){b.active=false;b.target=null;b.go.SetActive(false);continue;}
+                    if(!target){ReleaseBolt(index);continue;}
                     b.target=target;b.remaining=Mathf.Max(.03f,Vector3.Distance(Point(target),b.transform.position)/ProjectileSpeed);
                 }
                 Vector3 destination=Point(target);Vector3 incoming=b.transform.position-destination;if(incoming.sqrMagnitude>.0001f)b.transform.rotation=Quaternion.LookRotation(-incoming);
                 // A locked shot meets its target at the scheduled arrival, even after a sharp turn.
                 b.transform.position=Vector3.Lerp(b.transform.position,destination,Mathf.Clamp01(dt/Mathf.Max(.001f,b.remaining)));
                 b.remaining-=dt;
-                if(b.remaining>0 && Vector3.SqrMagnitude(b.transform.position-destination)>ProjectileRadius*ProjectileRadius)continue;
+                float radius = ProjectileRadius * (b.giant ? 1.35f : 1f);
+                if(b.remaining>0 && Vector3.SqrMagnitude(b.transform.position-destination)>radius*radius)continue;
                 Vector3 hitPoint=b.transform.position;Vector3 flashPoint=ImpactSurface(target,destination,incoming);
                 // Damage/death callbacks may remove the victim; release the slot before spawning a bounce.
                 float damage=b.damage;bool secondary=b.secondary,canBounce=b.canBounce,proc=b.abilityProc;var type=b.type;var element=b.element;var impactColor=b.color;
-                b.active=false;b.target=null;b.go.SetActive(false);
+                ReleaseBolt(index);
                 float dealt=target.DealDamageWithTrueBonus(damage,type,gameObject,0,!secondary,false,proc);
                 if(dealt>0)
                 {
                     HitsLanded++;PlayContactImpact(flashPoint,incoming,impactColor);
                     if(abilities)abilities.ProjectileHit(target,damage,dealt,secondary,canBounce,hitPoint,element);
-                    // Larger projectiles damage every target overlapping their impact sphere.
-                    if(Stats&&Stats.UpgradeLevel(SurvivorUpgradeId.ProjectileSize)>0)
+                    var support = Stats ? Stats.Support : null;
+                    if (support && target && target.IsTargetable)
                     {
-                        splash.Clear();foreach(var other in CharacterHealth.ActiveMonsters)if(other&&other!=target&&other.IsTargetable&&(Point(other)-hitPoint).sqrMagnitude<=ProjectileRadius*ProjectileRadius)splash.Add(other);
+                        float push = support.Scaled(SupportUpgradeId.ProjectileKnockback, 1f, .25f);
+                        if (push > 0f) PlayerSupportUpgrades.Knockback(target, target.transform.position + incoming,
+                            MonsterTerrainRules.StandardImpactSpeed * push * .01f);
+                    }
+                    // Larger projectiles damage every target overlapping their impact sphere.
+                    if(radius > ProjectileRadius || Stats&&Stats.UpgradeLevel(SurvivorUpgradeId.ProjectileSize)>0)
+                    {
+                        splash.Clear();foreach(var other in CharacterHealth.ActiveMonsters)if(other&&other!=target&&other.IsTargetable&&(Point(other)-hitPoint).sqrMagnitude<=radius*radius)splash.Add(other);
                         foreach(var other in splash)if(other&&other.IsTargetable)other.DealDamage(damage,type,gameObject);
                     }
                 }
             }
+            // Compact after hit callbacks because a bounce can rent the released slot in the same frame.
+            int write = 0;
+            for (int read = 0; read < bolts.Count; read++)
+                if (bolts[read] != null) bolts[write++] = bolts[read];
+            if (write < bolts.Count) bolts.RemoveRange(write, bolts.Count - write);
         }
         private static Vector3 ImpactSurface(CharacterHealth target,Vector3 center,Vector3 incoming)
         {
@@ -238,6 +326,12 @@ namespace GameData.Player.Script
         {
             PlayContactImpact(contact,incoming,color,.24f);
         }
+        internal void PlaySupportShieldBreak(Vector3 point)
+        {
+            ShowImpactFlash(point, new Color(.76f, .41f, 1f), .85f);
+            ShowImpactParticles(point, Vector3.up);
+        }
+
         private void PlayContactImpact(Vector3 point,Vector3 incoming,Color color,float size=0)
         {
             ShowImpactFlash(point,color,size);ShowImpactParticles(point,incoming);
@@ -300,7 +394,7 @@ namespace GameData.Player.Script
             if(CurrentTarget){Gizmos.color=attackRangeColor;Gizmos.DrawLine(Origin,Point(CurrentTarget));}
             Gizmos.color=previous;
         }
-        private void ClearBolts(){foreach(var effect in impactParticles)if(effect.go)effect.go.SetActive(false);foreach(var flash in impacts)if(flash.go)flash.go.SetActive(false);foreach(var b in bolts){b.active=false;b.target=null;if(b.go)b.go.SetActive(false);}}
+        private void ClearBolts(){foreach(var effect in impactParticles)if(effect.go)effect.go.SetActive(false);foreach(var flash in impacts)if(flash.go)flash.go.SetActive(false);for(int i=0;i<bolts.Count;i++)if(bolts[i]!=null)ReleaseBolt(i);bolts.Clear();}
         private void OnDisable(){CurrentTarget=null;ClearBolts();if(frostVoice)frostVoice.Stop();}
         private void OnDestroy(){if(pool)Destroy(pool);if(material)Destroy(material);if(impactMaterial)Destroy(impactMaterial);}
     }

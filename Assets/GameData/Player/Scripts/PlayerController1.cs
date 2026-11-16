@@ -59,15 +59,25 @@ namespace GameData.Player.Script
         private InputManager _inputManager;
 
         private Animator _animator;
+        private PlayerRagdoll _ragdoll;
+        private MiningSimulator.Ores.SlopeVisualLean _slopeLean;
         private MiningSimulator.Ores.PlayerStats _playerStats;
         private AnimationRunMana _runMana;
         private PistolShooting _shooting;
         private FullBodyFirstPerson _fullBodyLook;
         private TopDownSurvivor _topDown;
+        private MegabonkPlayerMovement _slide;
         private MiningSimulator.Ores.AlunePlayerEffect _alune;
         private SurvivorCombatData CoreData => _playerStats != null ? _playerStats.CoreData : null;
 
+        [SerializeField, Min(0)] private float environmentColliderRadius = .78f;
+        [SerializeField, Min(0)] private float environmentColliderHeight = 2.55f;
         private CapsuleCollider _bodyCapsule;
+        private int EnvironmentGroundMask => GroundCheck.value | 1;
+        private PhysicsMaterial _bodyPhysicsMaterial;
+        private readonly List<Vector3> _wallNormals = new(4);
+        private readonly RaycastHit[] _groundHits = new RaycastHit[12];
+        private const float MinimumGroundNormalY = .7071068f;
         private Vector3 _groundNormal = Vector3.up;
         private bool _grounded;
         public bool IsGrounded => _grounded;
@@ -110,14 +120,39 @@ namespace GameData.Player.Script
         private void Start()
         {
             _hasAnimator = TryGetComponent<Animator>(out _animator);
+            _ragdoll = GetComponent<PlayerRagdoll>();
             _playerRigidbody = GetComponent<Rigidbody>();
             _bodyCapsule = GetComponent<CapsuleCollider>();
+            if (_bodyCapsule)
+            {
+                float foot = _bodyCapsule.center.y - _bodyCapsule.height * .5f;
+                float radius = Mathf.Max(_bodyCapsule.radius, environmentColliderRadius);
+                float height = Mathf.Max(_bodyCapsule.height, environmentColliderHeight, radius * 2f);
+                _bodyCapsule.height = height;
+                _bodyCapsule.radius = radius;
+                Vector3 center = _bodyCapsule.center;
+                center.y = foot + height * .5f;
+                _bodyCapsule.center = center;
+                _bodyPhysicsMaterial = new PhysicsMaterial("Player ZeroFriction")
+                {
+                    staticFriction = 0f,
+                    dynamicFriction = 0f,
+                    bounciness = 0f,
+                    frictionCombine = PhysicsMaterialCombine.Minimum,
+                    bounceCombine = PhysicsMaterialCombine.Minimum
+                };
+                _bodyCapsule.sharedMaterial = _bodyPhysicsMaterial;
+            }
             _inputManager = GetComponent<InputManager>();
             _playerStats = GetComponent<MiningSimulator.Ores.PlayerStats>();
             _runMana = GetComponent<AnimationRunMana>();
             _shooting = GetComponent<PistolShooting>();
             _fullBodyLook = GetComponent<FullBodyFirstPerson>();
             _topDown=GetComponent<TopDownSurvivor>();
+            _slide = GetComponent<MegabonkPlayerMovement>();
+            if (!_slide && _topDown && _topDown.enabled && _bodyCapsule &&
+                FindAnyObjectByType<MiningSimulator.Ores.TerrainGenerator>())
+                _slide = gameObject.AddComponent<MegabonkPlayerMovement>();
             _alune=GetComponent<MiningSimulator.Ores.AlunePlayerEffect>();if(!_alune)_alune=gameObject.AddComponent<MiningSimulator.Ores.AlunePlayerEffect>();
             gameplayUi=FindAnyObjectByType<MiningSimulator.Ores.UiPanelCoordinator>();
             mainMenu=FindAnyObjectByType<MiningSimulator.Ores.GameMainMenu>();
@@ -164,7 +199,14 @@ namespace GameData.Player.Script
                 _animator.CrossFadeInFixedTime(HiEmoteState, .08f, 0);
         }
 
-        private void OnDisable() { _jumpRequested = false; _jumpHeldLastStep = false; }
+        private void OnDisable()
+        {
+            _slopeLean?.Reset();
+            if (_slide) _slide.ResetSlide();
+            _jumpRequested = false;
+            _jumpHeldLastStep = false;
+            _wallNormals.Clear();
+        }
         private Vector3 knockbackVelocity;
         private float knockbackRemaining, knockbackDuration;
         public void ApplyKnockback(Vector3 velocity, float seconds)
@@ -181,16 +223,46 @@ namespace GameData.Player.Script
             _currentVelocity = Vector2.zero;
             _jumpRequested = _jumpPending = _jumpHeldLastStep = false;
             _takeOffGroundChecks = 0;
+            if (_slide) _slide.ResetSlide();
             if(_fullBodyLook)_fullBodyLook.ResetLook(transform.eulerAngles.y,0f);
             if (_animator) { _animator.ResetTrigger(_jumpHash); _animator.SetFloat(_xVelHash, 0f); _animator.SetFloat(_yVelHash, 0f); }
             SampleGround();
         }
-        private void OnDestroy() { if (_inputManager != null) _inputManager.JumpPressed -= OnJumpPressed; }
+        private void OnDestroy()
+        {
+            if (_inputManager != null) _inputManager.JumpPressed -= OnJumpPressed;
+            if (_bodyPhysicsMaterial) Destroy(_bodyPhysicsMaterial);
+        }
+
+        private void OnCollisionEnter(Collision collision) => RecordWallContacts(collision);
+        private void OnCollisionStay(Collision collision) => RecordWallContacts(collision);
+
+        private void RecordWallContacts(Collision collision)
+        {
+            if (!isActiveAndEnabled || collision.rigidbody) return;
+            for (int i = 0; i < collision.contactCount; i++)
+            {
+                var contact = collision.GetContact(i);
+                if (contact.thisCollider != _bodyCapsule || Mathf.Abs(contact.normal.y) >= .5f) continue;
+                Vector3 normal = Vector3.ProjectOnPlane(contact.normal, Vector3.up).normalized;
+                if (!_wallNormals.Contains(normal)) _wallNormals.Add(normal);
+            }
+        }
+
+        private Vector3 SlideAlongWalls(Vector3 movement)
+        {
+            foreach (Vector3 normal in _wallNormals)
+                if (Vector3.Dot(movement, normal) < 0f)
+                    movement = Vector3.ProjectOnPlane(movement, normal);
+            return movement;
+        }
 
         private void FixedUpdate()
         {
             SampleGround();
+            if (!_grounded && _slide) _slide.LeaveGround();
             Move();
+            _wallNormals.Clear();
             if (!_grounded && _playerRigidbody.useGravity && _playerRigidbody.linearVelocity.y < 0f)
                 _playerRigidbody.AddForce(Physics.gravity * (Mathf.Max(1f, FallGravityMultiplier) - 1f), ForceMode.Acceleration);
         }
@@ -198,6 +270,15 @@ namespace GameData.Player.Script
         private void LateUpdate()
         {
             CamMovements();
+            if (!_topDown || !_topDown.enabled || !_grounded || !_animator || !_animator.isActiveAndEnabled ||
+                (_ragdoll && _ragdoll.IsRagdoll))
+            {
+                _slopeLean?.Reset();
+                return;
+            }
+
+            _slopeLean ??= new MiningSimulator.Ores.SlopeVisualLean(transform);
+            _slopeLean.Update(_groundNormal);
         }
 
         private void OnAnimatorMove()
@@ -223,6 +304,9 @@ namespace GameData.Player.Script
 
             // Camera-relative world input is independent of which enemy the actor faces.
             Vector3 worldMove=_topDown&&_topDown.enabled?_topDown.MovementDirection(movementInput):transform.TransformDirection(new Vector3(movementInput.x,0,movementInput.y));
+            if (_slide)
+                _slide.UpdatePosture(_inputManager.Slide && !JumpInputBlocked && !(_alune && _alune.IsStunned),
+                    _grounded, worldMove, targetSpeed);
             Vector3 localMove=transform.InverseTransformDirection(worldMove);
             movementInput=new Vector2(localMove.x,localMove.z);
             _currentVelocity = Vector2.Lerp(_currentVelocity, movementInput * animationSpeed, AnimBlendSpeed * Time.fixedDeltaTime);
@@ -238,18 +322,25 @@ namespace GameData.Player.Script
                 knockbackRemaining = Mathf.Max(0, knockbackRemaining - Time.fixedDeltaTime);
             }
 
-            if (_grounded)
+            if (_grounded && _slide && _slide.IsSliding && knockbackRemaining <= 0f)
+            {
+                Vector3 desired = SlideAlongWalls(_slide.CalculateSlideVelocity(worldMove, _groundNormal, Time.fixedDeltaTime));
+                // Wall contacts change the horizontal direction. Keep the resulting slide tangent to the ground.
+                desired.y = -(desired.x * _groundNormal.x + desired.z * _groundNormal.z) / _groundNormal.y;
+                _playerRigidbody.AddForce(desired - _playerRigidbody.linearVelocity, ForceMode.VelocityChange);
+            }
+            else if (_grounded)
             {
                 Vector3 velocity = _playerRigidbody.linearVelocity;
-                Vector3 desired = transform.TransformDirection(new Vector3(desiredVelocity.x, 0f, desiredVelocity.y));
+                Vector3 desired = SlideAlongWalls(transform.TransformDirection(new Vector3(desiredVelocity.x, 0f, desiredVelocity.y)));
                 // Follow the slope at the same horizontal speed in either direction.
                 desired.y = _groundNormal.y < .9999f
                     ? -(desired.x * _groundNormal.x + desired.z * _groundNormal.z) / _groundNormal.y
                     : velocity.y;
                 _playerRigidbody.AddForce(desired - velocity, ForceMode.VelocityChange);
 
-            } 
-            else
+            }
+            else if (!_slide || !_slide.KeepsAirMomentum || knockbackRemaining > 0f)
             {
                 // Steer horizontal velocity without changing the vertical jump/fall trajectory.
                 var localVelocity = transform.InverseTransformDirection(_playerRigidbody.linearVelocity);
@@ -259,7 +350,7 @@ namespace GameData.Player.Script
                 float acceleration = steering ? Mathf.Max(0f, AirControlAcceleration) * Mathf.Max(0f, AirResistance) : Mathf.Max(0f, AirBraking);
                 float maxCorrection = acceleration * Time.fixedDeltaTime;
                 correction = Vector3.ClampMagnitude(correction, maxCorrection);
-                _playerRigidbody.AddForce(transform.TransformDirection(correction), ForceMode.VelocityChange);
+                _playerRigidbody.AddForce(SlideAlongWalls(transform.TransformDirection(correction)), ForceMode.VelocityChange);
             }
 
             _animator.SetFloat(_xVelHash, _currentVelocity.x);
@@ -293,13 +384,17 @@ namespace GameData.Player.Script
             _playerRigidbody.MoveRotation(_playerRigidbody.rotation * Quaternion.Euler(0, Mouse_x * EffectiveMouseSensitivity * lookScale, 0));
         }
 
+        private bool JumpInputBlocked => _topDown && _topDown.enabled
+            ? gameplayUi && gameplayUi.BlocksGameplay || mainMenu && mainMenu.IsOpen
+            : Cursor.lockState != CursorLockMode.Locked;
+
         private void HandleJump()
         {
             if (!_hasAnimator) return;
             bool jumpPressed = _jumpRequested || (_inputManager.Jump && !_jumpHeldLastStep);
             _jumpRequested = false;
             _jumpHeldLastStep = _inputManager.Jump;
-            if (_alune&&_alune.IsStunned || !jumpPressed || !_grounded || _jumpPending || Time.timeScale <= 0f || (_topDown && _topDown.enabled ? (gameplayUi && gameplayUi.BlocksGameplay || mainMenu && mainMenu.IsOpen) : Cursor.lockState != CursorLockMode.Locked)) return;
+            if (_alune&&_alune.IsStunned || !jumpPressed || !_grounded || _jumpPending || Time.timeScale <= 0f || JumpInputBlocked) return;
 
             _jumpPending = true;
             _animator.ResetTrigger(_jumpHash);
@@ -311,6 +406,7 @@ namespace GameData.Player.Script
         {
             if (!_jumpPending || _playerRigidbody == null) return;
             _jumpPending = false;
+            if (_slide) _slide.LeaveGround();
             float jumpStrength = CoreData != null ? CoreData.jumpStrength : JumpFactor;
             Vector3 velocity = _playerRigidbody.linearVelocity;
             velocity.y = Mathf.Max(0f, jumpStrength) / Mathf.Max(.001f, _playerRigidbody.mass);
@@ -343,29 +439,62 @@ namespace GameData.Player.Script
             float halfHeight = hasCapsule ? capsuleBounds.extents.y : Dis2Ground * size;
             float radius = hasCapsule ? Mathf.Min(capsuleBounds.extents.x, capsuleBounds.extents.z) : 0f;
             float tolerance = (wasGrounded ? .08f : .035f) * size;
-            const float minimumGroundNormalY = .7071f;
-            float probeDistance = halfHeight + radius * (1f / minimumGroundNormalY - 1f) + tolerance;
-
             _grounded = false;
             _groundNormal = Vector3.up;
-            if (!takingOff &&
-                Physics.Raycast(origin, Vector3.down, out RaycastHit hit, probeDistance, GroundCheck, QueryTriggerInteraction.Ignore) &&
-                hit.normal.y >= minimumGroundNormalY)
+            if (!takingOff && TryFindGround(origin, halfHeight, radius, tolerance, velocity, out var normal))
             {
-                // The center ray reaches farther on slopes because the capsule contacts off-center.
-                float contactDistance = halfHeight + radius * (1f / hit.normal.y - 1f);
-                float normalSpeed = Vector3.Dot(velocity, hit.normal);
-                if (hit.distance <= contactDistance + tolerance && normalSpeed <= .1f)
-                {
-                    _grounded = true;
-                    _groundNormal = hit.normal;
-                    if (canNotify && !wasGrounded && velocity.y < -.6f)
-                        Landed?.Invoke(-velocity.y);
-                }
+                _grounded = true;
+                _groundNormal = normal;
+                if (canNotify && !wasGrounded && velocity.y < -.6f)
+                    Landed?.Invoke(-velocity.y);
             }
             SetAnimationGrounding();
         }
 
+        private bool TryFindGround(Vector3 origin, float halfHeight, float radius, float tolerance,
+            Vector3 velocity, out Vector3 normal)
+        {
+            normal = Vector3.up;
+            float slopeAllowance = radius * (1f / MinimumGroundNormalY - 1f);
+            if (Physics.Raycast(origin, Vector3.down, out var centerHit, halfHeight + slopeAllowance + tolerance,
+                EnvironmentGroundMask, QueryTriggerInteraction.Ignore) &&
+                (centerHit.collider.gameObject.layer != 0 || (GroundCheck.value & 1) != 0 ||
+                    MiningSimulator.Ores.WorldNavigationGrid.IsLevelSupport(centerHit.collider)) &&
+                centerHit.normal.y >= MinimumGroundNormalY &&
+                centerHit.distance <= halfHeight + radius * (1f / centerHit.normal.y - 1f) + tolerance &&
+                Vector3.Dot(velocity, centerHit.normal) <= .1f)
+            {
+                normal = centerHit.normal;
+                return true;
+            }
+
+            if (radius <= 0f || velocity.y > .1f) return false;
+
+            float probeRadius = radius * .9f;
+            const float lift = .1f;
+            var foot = origin + Vector3.up * (probeRadius - halfHeight + lift);
+            int count = Physics.SphereCastNonAlloc(foot, probeRadius, Vector3.down, _groundHits,
+                lift + slopeAllowance + tolerance, EnvironmentGroundMask, QueryTriggerInteraction.Ignore);
+            float bestDistance = float.PositiveInfinity;
+            for (int i = 0; i < count; i++)
+            {
+                var hit = _groundHits[i];
+                if (hit.rigidbody == _playerRigidbody || hit.distance >= bestDistance ||
+                    (hit.collider.gameObject.layer == 0 && (GroundCheck.value & 1) == 0 &&
+                        !MiningSimulator.Ores.WorldNavigationGrid.IsLevelSupport(hit.collider)) ||
+                    hit.normal.y < MinimumGroundNormalY) continue;
+
+                // A sphere touching a mesh edge can report an interpolated normal.
+                Vector3 verifyOrigin = hit.point + Vector3.up * lift;
+                if (!hit.collider.Raycast(new Ray(verifyOrigin, Vector3.down), out var surface, lift * 2f) ||
+                    surface.normal.y < MinimumGroundNormalY || Vector3.Dot(velocity, surface.normal) > .1f ||
+                    hit.distance > lift + (radius - probeRadius) * (1f / surface.normal.y - 1f) + tolerance)
+                    continue;
+                bestDistance = hit.distance;
+                normal = surface.normal;
+            }
+            return bestDistance < float.PositiveInfinity;
+        }
 
         private void SetAnimationGrounding()
         {

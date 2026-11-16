@@ -121,9 +121,18 @@ namespace GameData.Player.Script
             return result;
         }
         public bool HasEligible(PlayerStats player,bool abilities)=>Eligible(player,abilities).Count>0;
-        public List<Offer> Roll(PlayerStats player,int count=3,bool abilities=false,float rarityMultiplier=1f)
+        public List<Offer> Roll(PlayerStats player,int count=3,bool abilities=false,float rarityMultiplier=1f, IReadOnlyList<Offer> previous=null)
         {
             var offers=new List<Offer>(Mathf.Max(0,count));var available=Eligible(player,abilities);var pool=abilities?abilityCards:basicCards;if(pool==null)return offers;
+            if (previous != null)
+            {
+                var previousIds = new HashSet<SurvivorUpgradeId>();
+                foreach (var offer in previous) previousIds.Add(offer.id);
+                var fresh = available.FindAll(candidate => !previousIds.Contains(candidate.card.id));
+                var freshIds = new HashSet<SurvivorUpgradeId>();
+                foreach (var candidate in fresh) freshIds.Add(candidate.card.id);
+                if (freshIds.Count >= count) available = fresh;
+            }
             var chances=pool.rarityChances;
             if(abilities&&rarityMultiplier>1&&!float.IsInfinity(rarityMultiplier))chances=new SequentialRaritySettings{
                 legendaryPercent=Mathf.Min(100,chances.legendaryPercent*rarityMultiplier),epicPercent=Mathf.Min(100,chances.epicPercent*rarityMultiplier),

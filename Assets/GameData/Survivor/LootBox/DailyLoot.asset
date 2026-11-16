@@ -13,14 +13,24 @@ MonoBehaviour:
   m_Name: DailyLoot
   m_EditorClassIdentifier: Assembly-CSharp::GameData.Player.Script.SurvivorLootData
   prefab: {fileID: 711452718665089092, guid: 3dd77db30906f0b4987a1b2af43650a5, type: 3}
-  startingBoxCount: 10
+  startingBoxCount: 8
+  abilityBoxPrefab: {fileID: 711452718665089092, guid: 58df286fd5624f3893d8a6ed6d4ac5b9, type: 3}
+  startingAbilityBoxCount: 10
+  nearBoxCount: 4
+  midBoxCount: 4
+  midMinimumDistance: 16
+  midMaximumDistance: 25
+  farMinimumDistance: 29
+  farMaximumDistance: 60
+  farEdgeFraction: 0.85
+  rerollsPerRun: 3
   shinyVfx: {fileID: 2804008805934132213, guid: 031e948d7d48b1b4b8901b652de16ce0, type: 3}
-  shinyVfxScale: 1
-  shinyVfxOffset: {x: 0, y: 0.55, z: 0}
+  shinyVfxScale: 0.85
+  shinyVfxOffset: {x: 0, y: 0.46, z: 0}
   minimumDistance: 7
   maximumDistance: 9
   shinyChancePercent: 10
-  shinyAbilityBonusPercent: 10
+  shinyRarityBonusPercent: 10
   pickupRadius: 1.6
   pickupDelay: 0.75
   groundLayers:

@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace MiningSimulator.Ores
 {
-    [CreateAssetMenu(menuName = "Mining Simulator/Game Data/Monster Hit Feedback")]
+    [CreateAssetMenu(menuName = "Survivor/Game Data/Monster Hit Feedback")]
     public sealed class MonsterHitFeedbackData : ScriptableObject
     {
         public bool enabled = true;

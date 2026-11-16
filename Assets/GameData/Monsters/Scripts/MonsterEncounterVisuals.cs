@@ -18,6 +18,7 @@ namespace MiningSimulator.Ores
         private readonly List<Material> dissolveMaterials = new();
         private static readonly int Amount = Shader.PropertyToID("_DissolveAmount");
         public float RemainingSeconds => deadline > 0f ? Mathf.Max(0f, deadline - Time.time) : 0f;
+        internal void RestoreExpiry(float seconds) => deadline = seconds > 0f ? Time.time + seconds : 0f;
 
         public void Configure(MushroomMonster owner, MonsterRewardData data, MonsterBossSettings boss)
         {

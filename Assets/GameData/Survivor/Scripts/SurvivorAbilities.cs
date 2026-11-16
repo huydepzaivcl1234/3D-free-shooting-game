@@ -20,8 +20,10 @@ namespace GameData.Player.Script
         private GameObject auraEffect,shieldEffect;
         public SurvivorAbilityData Settings=>stats?stats.AbilityData:SurvivorAbilityData.Fallback;
         public float Shield=>shield;
+        private bool ShieldVisible => shield > 0f || (stats?.Support?.TemporaryShield ?? 0f) > 0f || Invulnerable;
+        internal void ScaleSupportShield(float multiplier) => shield *= multiplier;
         public float ShieldRecoveryRemaining=>shieldDelay;
-        public float MaxShield=>Level(SurvivorUpgradeId.Shield)>0?health.MaxHealth*Settings.uncommon.shield.maxHealthPercent*.01f+Settings.uncommon.shield.flatShield.At(Level(SurvivorUpgradeId.Shield)):0;
+        public float MaxShield=>Level(SurvivorUpgradeId.Shield)>0?(health.MaxHealth*Settings.uncommon.shield.maxHealthPercent*.01f+Settings.uncommon.shield.flatShield.At(Level(SurvivorUpgradeId.Shield)))*(stats?.Support?.ShieldStrengthMultiplier??1f):0;
         public float DefenseBonus=>ArmorBonus;
         public float MissingHealthDefenseBonus=>Level(SurvivorUpgradeId.MissingHealthArmor)>0&&health&&health.Health>0?Mathf.Floor(Mathf.Max(0,health.MaxHealth-health.Health)/Mathf.Max(.01f,Settings.epic.missingHealthArmor.missingHealthPerStack))*Settings.epic.missingHealthArmor.defensesPerStack.At(Level(SurvivorUpgradeId.MissingHealthArmor)):0;
         public float ArmorBonus=>MissingHealthDefenseBonus+(Level(SurvivorUpgradeId.ReactiveArmor)>0?attackers.Count*Settings.rare.reactiveArmor.armorPerEnemy:0);
@@ -29,6 +31,14 @@ namespace GameData.Player.Script
         public bool Invulnerable=>invulnerable>0;
         public float AuraRadius=>Mathf.Max(0,Settings.uncommon.aura.radius.At(Level(SurvivorUpgradeId.Aura)));
         private int Level(SurvivorUpgradeId id)=>stats?stats.UpgradeLevel(id):0;
+        private int RollAbilityRepeat()
+        {
+            int level = PlayerSupportUpgrades.For(stats)?.Level(SupportUpgradeId.RepeatAbility) ?? 0;
+            return level > 0 && Random.value < .5f ? level : 0;
+        }
+
+        private static float RepeatedAbilityDamage(float damage, int level) => damage * .1f + 10f * (level - 1);
+
         private void Awake(){stats=GetComponent<PlayerStats>();health=GetComponent<CharacterHealth>();combat=GetComponent<SurvivorAutoCombat>();}
         private void OnEnable(){CharacterHealth.AnyDamaged+=OnDamage;CharacterHealth.AnyDied+=OnDeath;}
         private void Start(){ResetLife();if(health&&health.HealthBar&&!GetComponent<PlayerShieldBar>())gameObject.AddComponent<PlayerShieldBar>();}
@@ -60,7 +70,7 @@ namespace GameData.Player.Script
             lv=Level(SurvivorUpgradeId.Aura);
             if(lv>0){auraTimer+=dt;float interval=Mathf.Max(.01f,Settings.uncommon.aura.tickInterval);if(auraTimer>=interval){auraTimer-=interval;Targets(scratch,transform.position,AuraRadius,true);foreach(var target in scratch)if(target&&target.IsTargetable)target.DealPeriodicDamage(Settings.uncommon.aura.damage.At(lv),CombatDamageType.Magic,gameObject);}}
             SurvivorLoopVfx.Set(ref auraEffect,Settings.uncommon.aura.visual,transform,lv>0,AuraRadius/Mathf.Max(.01f,Settings.uncommon.aura.visual.referenceRadius));
-            SurvivorLoopVfx.Set(ref shieldEffect,Settings.uncommon.shield.visual,transform,shield>0||Invulnerable);
+            SurvivorLoopVfx.Set(ref shieldEffect,Settings.uncommon.shield.visual,transform,ShieldVisible);
             TickCube(dt);
             TickSword(dt);
             TickBomb(dt);
@@ -70,9 +80,30 @@ namespace GameData.Player.Script
             if(amount<=0||!health||health.Health<=0||Invulnerable)return 0;
             var attacker=source?source.GetComponentInParent<CharacterHealth>():null;
             if(attacker&&attacker.IsMonster){lastIncoming=Time.time;defenseDecay=0;if(Level(SurvivorUpgradeId.ReactiveArmor)>0)attackers[attacker]=Time.time;incomingHits++;}
-            if(incomingHits>=Mathf.Max(1,Settings.rare.retaliate.incomingHits)){incomingHits=0;int lv=Level(SurvivorUpgradeId.Retaliate);if(lv>0){var target=Nearest(transform.position,Settings.rare.retaliate.range,null);if(target)target.DealDamage(Settings.rare.retaliate.armorPercent*.01f*health.Armor+Settings.rare.retaliate.magicResistancePercent*.01f*health.MagicResistance+Settings.rare.retaliate.flatDamage.At(lv),CombatDamageType.Physical,gameObject);}}
+            var retaliation = Settings.rare.retaliate;
+            if (incomingHits >= Mathf.Max(1, retaliation.incomingHits))
+            {
+                incomingHits = 0;
+                int level = Level(SurvivorUpgradeId.Retaliate);
+                var target = level > 0 ? Nearest(transform.position, retaliation.range, null) : null;
+                if (target)
+                {
+                    float damage = retaliation.armorPercent * .01f * health.Armor +
+                        retaliation.magicResistancePercent * .01f * health.MagicResistance + retaliation.flatDamage.At(level);
+                    int repeat = RollAbilityRepeat();
+                    target.DealDamage(damage, CombatDamageType.Physical, gameObject);
+                    if (repeat > 0 && target.IsTargetable)
+                        target.DealDamageWithTrueBonus(RepeatedAbilityDamage(damage, repeat), CombatDamageType.Physical,
+                            gameObject, 0, abilityProc: true);
+                }
+            }
             float absorbed=Mathf.Min(shield,amount);shield-=absorbed;
-            if(absorbed>0&&shield<=0){shieldDelay=Settings.uncommon.shield.brokenRecovery;if(shieldDelay<=0)shield=MaxShield;}
+            if (absorbed > 0 && shield <= 0)
+            {
+                shieldDelay = Settings.uncommon.shield.brokenRecovery;
+                if (shieldDelay <= 0) shield = MaxShield;
+                stats?.Support?.BurstShield();
+            }
             return amount-absorbed;
         }
         private void OnDamage(CharacterHealth victim,float dealt,GameObject source,bool basic,CombatDamageType type)
@@ -96,9 +127,18 @@ namespace GameData.Player.Script
                 int orb=Level(SurvivorUpgradeId.OrbBarrage);
                 if(orb>0&&!victim.IsAbilityProcDamage&&++orbHits>=Mathf.Max(1,Settings.common.orbBarrage.hitsRequired)){
                     orbHits=0;var rule=Settings.common.orbBarrage;Targets(orbTargets??=new(),transform.position,rule.range);
-                    for(int n=0;n<Mathf.Clamp(rule.orbCount,1,99)&&orbTargets.Count>0;n++){
+                    int count = Mathf.Clamp(rule.orbCount, 1, 99);
+                    int repeat = orbTargets.Count > 0 ? RollAbilityRepeat() : 0;
+                    float damage = rule.damage.At(orb);
+                    for(int n=0;n<count&&orbTargets.Count>0;n++){
                         var other=orbTargets[Random.Range(0,orbTargets.Count)];
-                        combat.Launch(other,rule.damage.At(orb),true,CombatDamageType.Physical,false,combat.BonusProjectileOrigin(n,Mathf.Clamp(rule.orbCount,1,99),victim),true);
+                        combat.Launch(other,damage,true,CombatDamageType.Physical,false,combat.BonusProjectileOrigin(n,count,victim),true);
+                    }
+                    for (int n = 0; repeat > 0 && n < count; n++)
+                    {
+                        var other = orbTargets[Random.Range(0, orbTargets.Count)];
+                        combat.Launch(other, RepeatedAbilityDamage(damage, repeat), true, CombatDamageType.Physical,
+                            false, combat.BonusProjectileOrigin(n, count, victim), true);
                     }
                 }
             }finally{processing=false;}
@@ -110,7 +150,12 @@ namespace GameData.Player.Script
                 if(element==ProjectileElement.Fire&&burn>0){var b=Settings.common.ignite;target.ApplyBurn(b.flatDamage.At(burn)+b.enemyMaxHealthPercent*.01f*target.MaxHealth,Mathf.Max(.1f,b.tickInterval),Mathf.Max(.01f,b.duration),gameObject);}
                 if(element==ProjectileElement.Ice&&frost>0){var status=target.GetComponent<SurvivorEnemyStatus>();if(!status)status=target.gameObject.AddComponent<SurvivorEnemyStatus>();var rule=Settings.epic.frostbite;if(status.Chill(rule.slowPercent,rule.damageTakenPercent.At(frost),rule.duration,rule.tint))combat.PlayFrostbite(target.transform.position);}
             }
-            if(!secondary)health.Heal(dealt*(stats?stats.UpgradeBonus(SurvivorUpgradeId.LifeSteal):0)*.01f);
+            if (!secondary)
+            {
+                float leech = dealt * (stats ? stats.UpgradeBonus(SurvivorUpgradeId.LifeSteal) : 0) * .01f;
+                health.Heal(leech);
+                stats?.Support?.RecordLifesteal(leech);
+            }
             if((!secondary||element!=ProjectileElement.None)&&canBounce){
                 int split=Level(SurvivorUpgradeId.SplitShot);
                 if(split>0){var other=Nearest(hitPoint,combat.AttackRange,target);if(other)combat.Launch(other,Settings.common.chainShot.baseDamagePercent*.01f*combat.BaseDamage+Settings.common.chainShot.flatDamage.At(split),true,CombatDamageType.Physical,false,hitPoint,element:element);}

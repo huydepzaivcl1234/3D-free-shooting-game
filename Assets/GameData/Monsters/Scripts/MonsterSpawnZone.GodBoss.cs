@@ -24,8 +24,18 @@ namespace MiningSimulator.Ores
 
         private readonly List<GodShrineState> godShrines = new();
         public GodBossController ActiveGodBoss => godBoss;
+        internal int TotalShrines => godShrines.Count;
+        internal int UsedShrines
+        {
+            get
+            {
+                int used = 0;
+                foreach (var shrine in godShrines) if (shrine.used) used++;
+                return used;
+            }
+        }
         private int BossShrineCount => bossShrineCountOverride >= 0 ? bossShrineCountOverride :
-            spawnSettings ? spawnSettings.BossShrinesFor(spawnWorld) : 1;
+            spawnSettings ? spawnSettings.BossShrinesFor(spawnWorld) : 4;
 
         private GodShrineState FindNearbyShrine()
         {
@@ -49,49 +59,65 @@ namespace MiningSimulator.Ores
             if (Time.time >= godRetry)
             {
                 godRetry = Time.time + 1;
-                int count = BossShrineCount;
+                int count = godBossData.shrinePrefab ? BossShrineCount : 0;
                 for (int i = 0; i < godShrines.Count && i < count; i++)
                 {
                     var saved = godShrines[i];
                     if (!saved.used && !saved.instance) CreateGodShrine(saved);
                 }
-                int attempts = 16;
-                while (godShrines.Count < count && attempts-- > 0)
-                {
-                    float distance = Random.Range(godBossData.shrineMinDistance, Mathf.Max(godBossData.shrineMinDistance, godBossData.shrineMaxDistance));
-                    var offset = Quaternion.Euler(0, Random.Range(0, 360f), 0) * Vector3.forward * distance;
-                    if (!TryFindGround(player.transform.position + offset, out var ground)) continue;
-                    if (Physics.CheckSphere(ground.point + Vector3.up, .55f, ~0, QueryTriggerInteraction.Ignore)) continue;
-                    if (godShrines.Exists(shrine => (shrine.point - ground.point).sqrMagnitude < 9f)) continue;
-                    var shrine = new GodShrineState { point = ground.point };
-                    godShrines.Add(shrine);
-                    CreateGodShrine(shrine);
-                }
+                if (godShrines.Count < count) PopulateGodShrines(count);
             }
 
             if (!godBoss && !(uiCoordinator && uiCoordinator.BlocksGameplay) &&
-                UnityEngine.InputSystem.Keyboard.current?.eKey.wasPressedThisFrame == true)
+                UnityEngine.InputSystem.Keyboard.current?.eKey.wasPressedThisFrame == true &&
+                (!stageLoot || !stageLoot.ClaimsInteract))
                 TrySummonGod(FindNearbyShrine());
+        }
+
+        private void PopulateGodShrines(int count)
+        {
+            var features = FindAnyObjectByType<MapFeaturePopulator>();
+            var arena = features ? features.Arena : null;
+            if (features && !features.PopulationReady) return;
+            var grid = WorldNavigationGrid.Instance;
+
+            bool Clear(Vector3 point)
+            {
+                if (grid && grid.IsPortalSpawnExcluded(point, 2f)) return false;
+                if (Physics.CheckSphere(point + Vector3.up * .75f, .65f, ~0, QueryTriggerInteraction.Ignore))
+                    return false;
+                foreach (var shrine in godShrines)
+                    if (Vector3.ProjectOnPlane(shrine.point - point, Vector3.up).sqrMagnitude < 144f)
+                        return false;
+                return true;
+            }
+
+            for (int attempt = 0; attempt < 16 && godShrines.Count < count; attempt++)
+            {
+                Vector3 point;
+                if (arena != null)
+                {
+                    if (!arena.TryGetFlatSpot(0, arena.MaxTier, 1.25f, 4f, Clear, out point, out _)) break;
+                }
+                else
+                {
+                    float distance = Random.Range(godBossData.shrineMinDistance,
+                        Mathf.Max(godBossData.shrineMinDistance, godBossData.shrineMaxDistance));
+                    var offset = Quaternion.Euler(0, Random.Range(0, 360f), 0) * Vector3.forward * distance;
+                    if (!TryFindGround(player.transform.position + offset, out var ground) || !Clear(ground.point))
+                        continue;
+                    point = ground.point;
+                }
+                var shrine = new GodShrineState { point = point };
+                godShrines.Add(shrine);
+                CreateGodShrine(shrine);
+            }
         }
 
         private void CreateGodShrine(GodShrineState shrine)
         {
-            GameObject instance;
-            if (godBossData.shrinePrefab)
-            {
-                instance = Instantiate(godBossData.shrinePrefab, shrine.point, Quaternion.identity, transform);
-            }
-            else
-            {
-                instance = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-                instance.GetComponent<Collider>().enabled = false;
-                instance.transform.SetParent(transform, true);
-                instance.transform.position = shrine.point + Vector3.up * 1.35f;
-                instance.transform.localScale = new Vector3(1.05f, 1.35f, 1.05f);
-                var color = new MaterialPropertyBlock();
-                color.SetColor("_BaseColor", new Color(.75f, .28f, .95f));
-                instance.GetComponent<Renderer>().SetPropertyBlock(color);
-            }
+            if (!godBossData.shrinePrefab) return;
+            var instance = Instantiate(godBossData.shrinePrefab, shrine.point, Quaternion.identity, transform);
             instance.name = "God Boss Shrine";
             shrine.instance = instance;
         }
@@ -130,12 +156,14 @@ namespace MiningSimulator.Ores
         private void OnGodDefeated(GodBossController boss)
         {
             boss.Defeated -= OnGodDefeated;
+            var cards = FindAnyObjectByType<MiningCardSystem>();
+            if (cards) cards.TryDrop(boss.transform.position, true);
             if(godBossData&&godBossData.lootAndRewards){
                 var loot=godBossData.lootAndRewards;
                 float xpMultiplier = MonsterLootSettings.BossExperience(loot.boss.experienceMultiplier) * boss.ExperienceMultiplier;
                 MonsterKillCredit.Notify(boss.Health.LastDamageSource,loot,true,MonsterLootSettings.RewardsFor(loot).experience*xpMultiplier);
-                var cards=FindAnyObjectByType<MiningCardSystem>();if(cards)cards.TryDrop(boss.transform.position,true,loot);
-                GrantRewards(loot,boss.transform.position,MonsterLootSettings.BossGold(loot.boss.goldMultiplier),xpMultiplier,boss.AppearanceNumber);
+                GrantRewards(loot,boss.transform.position,MonsterLootSettings.BossGold(loot.boss.goldMultiplier),
+                    xpMultiplier,boss.AppearanceNumber,ResolveSupportKillPlayer(boss.Health.LastDamageSource));
             }
             NotifyDefeated(boss.transform.position);
             godBoss = null; ForecastChanged?.Invoke();
@@ -161,7 +189,17 @@ namespace MiningSimulator.Ores
                         Vector3 point = boss.transform.position + Quaternion.Euler(0,Random.Range(0,360),0) * Vector3.forward * Random.Range(Mathf.Max(0,godBossData.summonMinimumDistance),Mathf.Max(godBossData.summonMinimumDistance,godBossData.summonMaximumDistance));
                         if (!TryFindGround(point, out var hit)) continue;
                         if ((player.transform.position-hit.point).sqrMagnitude < godBossData.summonMinimumPlayerDistance * godBossData.summonMinimumPlayerDistance) continue;
-                        if (Physics.CheckSphere(hit.point + Vector3.up * 1.2f, .8f, ~0, QueryTriggerInteraction.Ignore)) continue;
+                        var capsule = entry.prefab.GetComponent<CharacterController>();
+                        if (!capsule) continue;
+                        Vector3 scale = Vector3.Scale(entry.prefab.transform.lossyScale, transform.lossyScale);
+                        if (variant == 1) scale *= entry.prefab.RewardData.boss.ScaleMultiplier;
+                        float radius = entry.prefab.EnvironmentRadius(capsule) * Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.z));
+                        float height = Mathf.Max(radius * 2f, entry.prefab.EnvironmentHeight(capsule) * Mathf.Abs(scale.y));
+                        var grid = WorldNavigationGrid.Instance;
+                        if (grid && !grid.IsSpawnPlacementClear(hit.point, radius, height)) continue;
+                        Vector3 bottom = hit.point + Vector3.up * (radius + .1f);
+                        Vector3 top = hit.point + Vector3.up * Mathf.Max(radius + .1f, height - radius);
+                        if (Physics.CheckCapsule(bottom, top, radius, ~LayerMask.GetMask("Ragdoll"), QueryTriggerInteraction.Ignore)) continue;
                         var minion = Instantiate(entry.prefab, hit.point + Vector3.up * .05f, Quaternion.identity, transform);
                         minion.Initialize(this, player, variant == 1, true);
                         GameData.Player.Script.SurvivorMonsterDiscovery.Announce(minion,entry,variant==1);

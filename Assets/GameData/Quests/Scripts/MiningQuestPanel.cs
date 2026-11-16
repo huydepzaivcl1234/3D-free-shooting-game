@@ -116,6 +116,9 @@ namespace MiningSimulator.Ores
 
         private float nextTimerRefresh;
         private GameObject lastOpener;
+        private TextMeshProUGUI runQuestLabel;
+        private MonsterSpawnZone questEncounterZone;
+        internal RectTransform PanelRoot => panelRoot;
 
         private void Awake()
         {
@@ -202,15 +205,15 @@ namespace MiningSimulator.Ores
             EventSystem.current?.SetSelectedGameObject(lastOpener);
         }
 
-        private void OpenFromGameplay()
-        {
-            lastOpener = gameplayOpenButton != null ? gameplayOpenButton.gameObject : null;
-            Open();
-        }
-
         private void OpenFromMainMenu()
         {
-            lastOpener = mainMenuOpenButton != null ? mainMenuOpenButton.gameObject : null;
+            OpenFromMenu(mainMenuOpenButton);
+        }
+
+        internal void OpenFromMenu(Button opener)
+        {
+            lastOpener = opener != null ? opener.gameObject : null;
+            questEncounterZone = FindFirstObjectByType<MonsterSpawnZone>();
             Open();
         }
 
@@ -281,8 +284,37 @@ namespace MiningSimulator.Ores
                     y += 148f; dailyCount++;
                 }
                 emptyDailyLabel?.transform.parent.gameObject.SetActive(dailyCount == 0);
-                questContent.sizeDelta = new Vector2(questContent.sizeDelta.x, Mathf.Max(306f, y + (dailyCount == 0 ? 58f : 0f)));
+                y += dailyCount == 0 ? 58f : 0f;
+                y += LayoutRunQuests(y);
+                questContent.sizeDelta = new Vector2(questContent.sizeDelta.x, Mathf.Max(306f, y));
             }
+        }
+
+        private float LayoutRunQuests(float y)
+        {
+            if (weeklyHeading == null) return 0f;
+            string progress = questEncounterZone != null ? questEncounterZone.ActiveNpcQuestProgress : "";
+            if (string.IsNullOrEmpty(progress))
+            {
+                if (runQuestLabel != null) runQuestLabel.gameObject.SetActive(false);
+                return 0f;
+            }
+
+            if (runQuestLabel == null)
+            {
+                runQuestLabel = Instantiate(weeklyHeading, questContent);
+                runQuestLabel.name = "Active NPC Quest Progress";
+                runQuestLabel.raycastTarget = false;
+                runQuestLabel.alignment = TextAlignmentOptions.Left;
+                runQuestLabel.rectTransform.anchorMin = new Vector2(0f, 1f);
+                runQuestLabel.rectTransform.anchorMax = new Vector2(1f, 1f);
+                runQuestLabel.rectTransform.pivot = new Vector2(.5f, 1f);
+                runQuestLabel.rectTransform.sizeDelta = new Vector2(-40f, 100f);
+            }
+            runQuestLabel.gameObject.SetActive(true);
+            runQuestLabel.rectTransform.anchoredPosition = new Vector2(0f, -y);
+            runQuestLabel.text = MiningLocalization.Text("ACTIVE NPC QUESTS", "NHIỆM VỤ NPC ĐANG LÀM") + "\n" + progress;
+            return 100f;
         }
 
         private void RefreshTimer()
@@ -299,7 +331,6 @@ namespace MiningSimulator.Ores
         private void AddListeners()
         {
             RemoveListeners();
-            gameplayOpenButton?.onClick.AddListener(OpenFromGameplay);
             mainMenuOpenButton?.onClick.AddListener(OpenFromMainMenu);
             closeButton?.onClick.AddListener(Close);
             foreach (QuestRowView row in rows) row.Bind(Claim);
@@ -307,7 +338,6 @@ namespace MiningSimulator.Ores
 
         private void RemoveListeners()
         {
-            gameplayOpenButton?.onClick.RemoveListener(OpenFromGameplay);
             mainMenuOpenButton?.onClick.RemoveListener(OpenFromMainMenu);
             closeButton?.onClick.RemoveListener(Close);
             foreach (QuestRowView row in rows) row.Unbind();

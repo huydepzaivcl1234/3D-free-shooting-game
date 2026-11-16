@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace MiningSimulator.Ores
 {
-    [CreateAssetMenu(menuName = "Mining Simulator/Monsters/Mushnight")]
+    [CreateAssetMenu(menuName = "Survivor/Monsters/Mushnight")]
     public sealed class MushnightData : MonsterRewardData
     {
         [Header("Mushnight: theft, escape and stamina")]

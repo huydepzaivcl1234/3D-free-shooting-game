@@ -84,10 +84,15 @@ namespace MiningSimulator.Ores
         internal int CrowdRows=>depth;
         internal float CrowdCellSize=>cellSize;
         internal Vector3 CrowdOrigin=>origin;
-        internal void CopyCrowdCells(Vector3[] points,byte[] open)
+        internal void CopyCrowdCells(Vector3[] points, byte[] open, float radius, float height)
         {
             if(points.Length!=CellCount||open.Length!=CellCount)throw new ArgumentException("Crowd grid size mismatch");
-            for(int i=0;i<CellCount;i++){points[i]=cells[i].point;open[i]=(byte)(cells[i].ground&&cells[i].open?1:0);}
+            float cellMargin = cellSize * .707107f;
+            for (int i = 0; i < CellCount; i++)
+            {
+                points[i] = cells[i].point;
+                open[i] = (byte)(cells[i].ground && IsCapsuleClear(points[i], radius + cellMargin, height) ? 1 : 0);
+            }
         }
         public int CellCount => cells?.Length ?? 0;
         public float BuildProgress => CellCount == 0 ? 0 : (float)cursor / CellCount;
@@ -145,11 +150,11 @@ namespace MiningSimulator.Ores
             Vector3 max = min + new Vector3(areaSize.x, 0, areaSize.y);
             if (autoBounds)
             {
-                bool found=false;Bounds bounds=default;int groundLayer=LayerMask.NameToLayer("Ground");
+                bool found=false;Bounds bounds=default;
                 foreach(var collider in FindObjectsByType<Collider>(FindObjectsSortMode.None)){
                     if(!collider.enabled||collider.isTrigger||!collider.gameObject.activeInHierarchy||
-                        (groundLayers.value&(1<<collider.gameObject.layer))==0||
-                        !GroundSurfaceLayers.Contains(collider.gameObject.layer)||IsDynamicActor(collider))continue;
+                        (LevelSupportMask & (1<<collider.gameObject.layer))==0||
+                        !IsLevelSupport(collider)||IsDynamicActor(collider))continue;
                     if(!found){bounds=collider.bounds;found=true;}else bounds.Encapsulate(collider.bounds);
                 }
                 if(found){min=bounds.min;max=bounds.max;}
@@ -164,6 +169,14 @@ namespace MiningSimulator.Ores
             {
             }
         }
+        [ContextMenu("Rebake A* (Play Mode)")]
+        private void RebakeFromInspector()
+        {
+            if (!Application.isPlaying) return;
+            Physics.SyncTransforms();
+            RequestFullRebake();
+        }
+
         public void Rebake()
         {
             RequestFullRebake(); if (cells == null) return;
@@ -210,16 +223,14 @@ namespace MiningSimulator.Ores
             bool supported = false;
             float supportHeight = float.NegativeInfinity;
             int count = Physics.RaycastNonAlloc(p + Vector3.up * groundProbeHeight, Vector3.down,
-                hits, groundProbeHeight * 2, groundLayers.value & ~ActorLayers, QueryTriggerInteraction.Ignore);
+                hits, groundProbeHeight * 2, LevelSupportMask & ~ActorLayers, QueryTriggerInteraction.Ignore);
             float nearest = float.PositiveInfinity;
             for (int i = 0; i < count; i++)
             {
                 var hit = hits[i];
                 if (hit.distance >= nearest || (ignoredSupport != null && ignoredSupport.Contains(hit.collider)) || IsDynamicActor(hit.collider) ||
                     Vector3.Angle(hit.normal, Vector3.up) > maximumSlope) continue;
-                // Only authored Ground-layer geometry supports actors; roofs on obstacle layers do not.
-                int groundLayer = LayerMask.NameToLayer("Ground");
-                if (!GroundSurfaceLayers.Contains(hit.collider.gameObject.layer)) continue;
+                if (!IsLevelSupport(hit.collider)) continue;
                 if (hit.point.y < supportHeight - .01f) continue;
                 nearest = hit.distance; supportHeight = hit.point.y;
                 slope = Vector3.Angle(hit.normal, Vector3.up); layer = hit.collider.gameObject.layer; supported = true;
@@ -227,6 +238,60 @@ namespace MiningSimulator.Ores
             if (supported) p.y = supportHeight;
             return count < hits.Length && supported;
         }
+        private int LevelSupportMask => groundLayers.value | 1;
+
+        internal static bool IsLevelSupport(Collider collider) =>
+            GroundSurfaceLayers.Contains(collider.gameObject.layer) ||
+            (collider.gameObject.layer == 0 && !collider.attachedRigidbody &&
+                collider.GetComponent("ProBuilderMesh"));
+
+        private Transform portalSpawnArea;
+        private float portalSpawnRadius;
+
+        internal void SetPortalSpawnArea(Transform portal, float radius)
+        {
+            portalSpawnArea = portal;
+            portalSpawnRadius = radius;
+        }
+
+        internal bool IsPortalSpawnExcluded(Vector3 point, float radius = 0f)
+        {
+            if (!portalSpawnArea) return false;
+            Vector3 offset = point - portalSpawnArea.position;
+            float reach = portalSpawnRadius + radius;
+            return offset.x * offset.x + offset.z * offset.z < reach * reach;
+        }
+
+        internal Vector3 ResolvePortalSpawn(Vector3 position, float radius, float height)
+        {
+            if (!IsPortalSpawnExcluded(position, radius)) return position;
+            Vector3 offset = position - portalSpawnArea.position;
+            float angle = Mathf.Atan2(offset.z, offset.x);
+            float distance = portalSpawnRadius + radius + .45f;
+            for (int i = 0; i < 8; i++)
+            {
+                float heading = angle + i * Mathf.PI / 4f;
+                Vector3 candidate = portalSpawnArea.position + new Vector3(Mathf.Cos(heading), 0f, Mathf.Sin(heading)) * distance;
+                if (TryGetGroundPoint(candidate, out var support) && IsSpawnPlacementClear(support, radius, height))
+                    return support;
+            }
+            return TryGetRandomStandPoint(radius, height, out var stand) ? stand : position;
+        }
+
+        internal bool IsSpawnPlacementClear(Vector3 foot, float radius, float height)
+        {
+            if (IsPortalSpawnExcluded(foot, radius) || !IsCapsulePlacementClear(foot, radius, height)) return false;
+            // A center hit alone would allow large enemies to spawn over a roof edge.
+            for (int i = 0; i < 8; i++)
+            {
+                float angle = i * Mathf.PI / 4f;
+                Vector3 edge = foot + new Vector3(Mathf.Cos(angle), 0, Mathf.Sin(angle)) * radius;
+                if (!TryGetGroundPoint(edge, out var support) ||
+                    Mathf.Abs(support.y - foot.y) > maximumStep) return false;
+            }
+            return true;
+        }
+
         private static readonly Dictionary<Collider, bool> actorCache = new();
         private static int actorCacheFrame = -1;
         private static bool IsDynamicActor(Collider c)
@@ -257,7 +322,7 @@ namespace MiningSimulator.Ores
         public bool TryGetRandomStandPoint(float radius,float height,out Vector3 point)
         {
             point=default;if(!HasBaked||CellCount==0)return false;
-            for(int attempt=0;attempt<96;attempt++){var cell=cells[UnityEngine.Random.Range(0,CellCount)];if(cell.ground&&cell.open&&IsCapsulePlacementClear(cell.point,radius,height)){point=cell.point;return true;}}
+            for(int attempt=0;attempt<96;attempt++){var cell=cells[UnityEngine.Random.Range(0,CellCount)];if(cell.ground&&cell.open&&!IsPortalSpawnExcluded(cell.point,radius)&&IsCapsulePlacementClear(cell.point,radius,height)){point=cell.point;return true;}}
             return false;
         }
         public bool TryGetGroundPoint(Vector3 position, out Vector3 point)
@@ -279,12 +344,39 @@ namespace MiningSimulator.Ores
         private bool IsCapsuleClear(Vector3 p, float radius, float height)
         {
             radius = Mathf.Max(.05f, radius);
-            Vector3 bottom = p + Vector3.up * (radius + probeGroundClearance);
-            Vector3 top = p + Vector3.up * Mathf.Max(radius + probeGroundClearance, (height > 0 ? height : probeHeight) - radius);
-            int count = Physics.OverlapCapsuleNonAlloc(bottom, top, radius, overlaps, obstacleLayers.value & ~ActorLayers, QueryTriggerInteraction.Ignore);
+            Vector3 bottom = p + Vector3.up * radius;
+            Vector3 top = p + Vector3.up * Mathf.Max(radius, (height > 0 ? height : probeHeight) - radius);
+            int count = Probe(probeGroundClearance);
             if (count == overlaps.Length) return false;
-            for (int i = 0; i < count; i++) if (Blocks(overlaps[i], p.y)) return false;
+            for (int i = 0; i < count; i++)
+            {
+                var obstacle = overlaps[i];
+                if (!Blocks(obstacle, p.y)) continue;
+                // The padded capsule needs extra clearance above an inclined support plane.
+                var arena = obstacle.GetComponentInParent<IProceduralArena>();
+                if (arena == null ||
+                    !arena.TrySample(p, out var surface, out var normal) ||
+                    Mathf.Abs(surface.y - p.y) > .01f || normal.y >= .999f ||
+                    normal.y < Mathf.Cos(maximumSlope * Mathf.Deg2Rad)) return false;
+                float lift = radius * (1f / normal.y - 1f) + .01f;
+                if (lift <= probeGroundClearance) return false;
+                count = Probe(lift);
+                if (count == overlaps.Length) return false;
+                for (int j = 0; j < count; j++)
+                    if (Blocks(overlaps[j], p.y)) return false;
+                return true;
+            }
             return true;
+
+            int Probe(float lift)
+            {
+                Vector3 offset = Vector3.up * lift;
+                if (top == bottom)
+                    return Physics.OverlapSphereNonAlloc(bottom + offset, radius, overlaps,
+                        obstacleLayers.value & ~ActorLayers, QueryTriggerInteraction.Ignore);
+                return Physics.OverlapCapsuleNonAlloc(bottom + offset, top + offset, radius, overlaps,
+                    obstacleLayers.value & ~ActorLayers, QueryTriggerInteraction.Ignore);
+            }
         }
         public void MarkDirty(Bounds b)
         {

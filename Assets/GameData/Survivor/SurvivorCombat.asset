@@ -66,7 +66,7 @@ MonoBehaviour:
   staminaRecoveryPerSecond: 8
   staminaRecoveryDelay: 1.5
   sprintRecoveryThreshold: 0.25
-  walkSpeed: 2
-  runSpeed: 5
+  walkSpeed: 3
+  runSpeed: 6
   jumpStrength: 300
   projectileColor: {r: 1, g: 0.65, b: 0.12, a: 1}

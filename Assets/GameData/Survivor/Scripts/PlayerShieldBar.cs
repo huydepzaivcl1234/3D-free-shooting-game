@@ -55,7 +55,9 @@ namespace GameData.Player.Script
         public void Refresh()
         {
             if(!Bind())return;
-            float shield=health.Health>0?Mathf.Max(0,abilities.Shield):0;
+            var support = PlayerSupportUpgrades.For(health);
+            float shield = health.Health > 0 ? Mathf.Max(0, abilities.Shield) +
+                (support ? support.TemporaryShield : 0f) : 0f;
             bool visible=shield>.0001f;
             white.gameObject.SetActive(visible);
             float capacity=Mathf.Max(1,health.MaxHealth)+(visible?Mathf.Max(shield,abilities.MaxShield):0);

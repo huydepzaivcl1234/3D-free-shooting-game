@@ -5,7 +5,7 @@ namespace MiningSimulator.Ores
     public enum DailyEncounterEvent { Normal = 0, NightOnly = 1, BossInvasion = 2, Alune = 3 }
     public enum DailyEncounterOverride { Random = -1, Normal = 0, NightOnly = 1, BossInvasion = 2, Alune = 3 }
 
-    [CreateAssetMenu(menuName = "Mining Simulator/Daily Encounter Events")]
+    [CreateAssetMenu(menuName = "Survivor/Daily Encounter Events")]
     public sealed class DailyEncounterEventData : ScriptableObject
     {
         [Header("Monster population")]

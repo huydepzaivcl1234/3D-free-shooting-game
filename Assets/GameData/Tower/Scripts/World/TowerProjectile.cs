@@ -31,6 +31,7 @@ namespace MiningSimulator.Ores
             {
                 var t=hits[i].transform;
                 if(t.IsChildOf(transform)||(owner!=null&&t.IsChildOf(owner.transform)))continue;
+                if(t.GetComponentInParent<MushroomMonster>() is { IsSupportAlly: true })continue;
                 if(hits[i].distance<distance){closest=hits[i];distance=hits[i].distance;}
             }
             if(distance<float.PositiveInfinity)

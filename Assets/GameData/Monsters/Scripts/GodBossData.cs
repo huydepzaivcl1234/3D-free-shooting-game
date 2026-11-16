@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace MiningSimulator.Ores
 {
-    [CreateAssetMenu(menuName = "Mining Simulator/Game Data/God Boss")]
+    [CreateAssetMenu(menuName = "Survivor/Game Data/God Boss")]
     public sealed class GodBossData : ScriptableObject
     {
         public GodBossController prefab;
