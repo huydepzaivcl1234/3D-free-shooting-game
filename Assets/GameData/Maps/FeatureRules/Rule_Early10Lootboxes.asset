@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::MiningSimulator.Ores.MapFeatureRule
   featureName: EarlyLootbox
   prefab: {fileID: 711452718665089092, guid: 3dd77db30906f0b4987a1b2af43650a5, type: 3}
-  spawnCount: 8
+  spawnCount: 10
   minTier: 0
   maxTier: 3
   spawnTiming: 0

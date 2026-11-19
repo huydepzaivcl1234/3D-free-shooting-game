@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using GameData.Player.Script;
 using UnityEngine;
 
 namespace MiningSimulator.Ores
@@ -36,6 +37,32 @@ namespace MiningSimulator.Ores
         private bool overtimeActivated;
         private readonly HashSet<Mesh> combinedMeshes = new();
         public bool PopulationReady { get; private set; }
+
+        private const int SpawnDensityLimit = 2;
+        private const float SpawnDensityMinimumDistance = 10f;
+        private const float SpawnDensityMaximumDistance = 20f;
+
+        internal static bool IsInsideSpawnDensityBand(Vector3 point, Vector3 origin)
+        {
+            float x = point.x - origin.x;
+            float z = point.z - origin.z;
+            float distanceSquared = x * x + z * z;
+            return distanceSquared >= SpawnDensityMinimumDistance * SpawnDensityMinimumDistance &&
+                distanceSquared <= SpawnDensityMaximumDistance * SpawnDensityMaximumDistance;
+        }
+
+        internal static bool SpawnDensityLimitReached(Vector3 point, Vector3 origin, int currentCount) =>
+            IsInsideSpawnDensityBand(point, origin) && currentCount >= SpawnDensityLimit;
+
+        internal static int CountSpawnDensityItems(Vector3 origin)
+        {
+            int count = 0;
+            foreach (var box in FindObjectsByType<SurvivorLootBox>(FindObjectsSortMode.None))
+                if (box && IsInsideSpawnDensityBand(box.transform.position, origin)) count++;
+            foreach (var pillar in FindObjectsByType<SupportUpgradePillar>(FindObjectsSortMode.None))
+                if (pillar && IsInsideSpawnDensityBand(pillar.transform.position, origin)) count++;
+            return count;
+        }
 
         public MapFeatureRule LootRule
         {
@@ -211,6 +238,7 @@ namespace MiningSimulator.Ores
                 coordinator = FindAnyObjectByType<UiPanelCoordinator>(FindObjectsInactive.Include);
                 menu = FindAnyObjectByType<GameMainMenu>(FindObjectsInactive.Include);
             }
+            Vector3 spawnOrigin = player ? player.transform.position : terrain.Center;
             foreach (var decoration in decorations)
             {
                 if (decoration == null || !decoration.prefab) continue;
@@ -234,9 +262,12 @@ namespace MiningSimulator.Ores
                     spacing = Mathf.Max(spacing, footprint * 2f);
                 }
                 int count = pillarSettings ? Mathf.Max(0, pillarSettings.spawnCount) : decoration.count;
+                int densityCount = pillarPrefab ? CountSpawnDensityItems(spawnOrigin) : 0;
+                bool AcceptSpot(Vector3 candidate) =>
+                    !pillarPrefab || !SpawnDensityLimitReached(candidate, spawnOrigin, densityCount);
                 for (int i = 0; i < count; i++)
                 {
-                    if (!terrain.TryGetDecorationSpot(random, clearance, spacing, out var point)) break;
+                    if (!terrain.TryGetDecorationSpot(random, clearance, spacing, AcceptSpot, out var point)) break;
                     var prop = Instantiate(decoration.prefab, point,
                         Quaternion.Euler(0, (float)random.NextDouble() * 360, 0),
                         decoration.staticBoulder ? boulders : parent);
@@ -252,7 +283,10 @@ namespace MiningSimulator.Ores
                     else prop.transform.localScale *= pillarPrefab ? scale * SupportUpgradePillar.LegacySizeMultiplier : scale;
                     PrepareDecoration(prop, decoration);
                     if (pillarPrefab)
+                    {
                         prop.GetComponent<SupportUpgradePillar>().Initialize(terrain, pillarSlot++, player, stage, coordinator, menu);
+                        if (IsInsideSpawnDensityBand(point, spawnOrigin)) densityCount++;
+                    }
                 }
             }
             if (dirtyBounds != null)

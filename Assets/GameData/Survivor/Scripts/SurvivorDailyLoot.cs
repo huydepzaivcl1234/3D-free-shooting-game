@@ -19,7 +19,7 @@ namespace GameData.Player.Script
         private bool saveBlocked;
         private const string Key="Survivor.DailyLoot.v1";
         [Serializable] private sealed class BoxProgress {public bool shiny,collected,bonus;public SurvivorLootBox.SavedBox runtime;}
-        [Serializable] private sealed class Progress {public int version=4,day=-1,rerollsUsed,paidOpenCount;public bool shiny,collected,exhaustionRolled;public Vector3 origin;public float layoutAngle;public List<BoxProgress> boxes=new();}
+        [Serializable] private sealed class Progress {public int version=5,day=-1,rerollsUsed,paidOpenCount;public bool shiny,collected,exhaustionRolled;public Vector3 origin;public float layoutAngle;public List<BoxProgress> boxes=new();}
         private Progress progress=new();
         private readonly RaycastHit[] groundHits=new RaycastHit[32];
         private readonly Collider[] obstacles=new Collider[32];
@@ -107,7 +107,7 @@ namespace GameData.Player.Script
         private void Load()
         {
             string json=GameSave.GetString(Key,"");if(string.IsNullOrEmpty(json))return;
-            try{var p=JsonUtility.FromJson<Progress>(json);if(p==null||(p.version!=1&&p.version!=2&&p.version!=3&&p.version!=4)||p.day < -1 || (p.version==1 && p.day<0)){saveBlocked=true;return;}if(p.version==1){p.boxes=new List<BoxProgress>{new(){shiny=p.shiny,collected=p.collected}};p.version=2;}
+            try{var p=JsonUtility.FromJson<Progress>(json);if(p==null||p.version<1||p.version>5||p.day < -1 || (p.version==1 && p.day<0)){saveBlocked=true;return;}if(p.version==1){p.boxes=new List<BoxProgress>{new(){shiny=p.shiny,collected=p.collected}};p.version=2;}
                 if(p.boxes==null||p.boxes.Count>51||p.boxes.Exists(b=>b==null)||
                     (p.boxes.Count==51&&(!p.exhaustionRolled||!p.boxes[50].bonus))){saveBlocked=true;return;}progress=p;}
             catch(ArgumentException){saveBlocked=true;}
@@ -141,8 +141,24 @@ namespace GameData.Player.Script
                 progress.version = 4;
             }
 
+            int desiredCount = Mathf.Clamp(rule ? rule.spawnCount : data.startingBoxCount, 0, 50);
+            bool hasBonusBox = progress.boxes.Count > 0 && progress.boxes[^1].bonus;
+            int baseCount = progress.boxes.Count - (hasBonusBox ? 1 : 0);
+            bool countUpdated = false;
+            while (baseCount < desiredCount)
+            {
+                int insertAt = hasBonusBox ? progress.boxes.Count - 1 : progress.boxes.Count;
+                progress.boxes.Insert(insertAt, new BoxProgress
+                {
+                    shiny = UnityEngine.Random.value < data.shinyChancePercent * .01f
+                });
+                baseCount++;
+                countUpdated = true;
+            }
             bool exhaustionUpdated = RollExhaustionBonus();
-            bool saveNeeded = assignLayout || exhaustionUpdated;
+            bool versionUpdated = progress.version < 5;
+            progress.version = 5;
+            bool saveNeeded = assignLayout || countUpdated || exhaustionUpdated || versionUpdated;
             while (boxes.Count < progress.boxes.Count) boxes.Add(null);
             bool spawned = false;
             var terrain = rule ? mapFeatures.Arena : null;
@@ -155,15 +171,18 @@ namespace GameData.Player.Script
                 if (record.runtime != null)
                 {
                     point = record.runtime.falling ? record.runtime.landing : record.runtime.position;
+                    Vector3 savedPosition = point;
+                    bool overDensityLimit = MapFeaturePopulator.SpawnDensityLimitReached(point, progress.origin,
+                        MapFeaturePopulator.CountSpawnDensityItems(progress.origin));
                     if (terrain != null)
                     {
-                        Vector3 savedPosition = point;
                         var grid = WorldNavigationGrid.Instance;
-                        if ((!terrain.TryGetFlatSupport(point, rule.clearance, out point, out _) ||
+                        if ((overDensityLimit || !terrain.TryGetFlatSupport(point, rule.clearance, out point, out _) ||
                             (terrain is TerrainGenerator && grid && !grid.TryFindPath(terrain.Center, point, placementPath))) &&
                             !TryFindPosition(i, out point)) continue;
-                        correctSavedPosition = record.runtime.falling || (savedPosition - point).sqrMagnitude > .000001f;
                     }
+                    else if (overDensityLimit && !TryFindPosition(i, out point)) continue;
+                    correctSavedPosition = record.runtime.falling || (savedPosition - point).sqrMagnitude > .000001f;
                 }
                 else if (Time.timeScale <= 0 || !TryFindPosition(i, out point))
                     continue;
@@ -206,6 +225,7 @@ namespace GameData.Player.Script
             Vector3 origin = progress.origin;
             var grid = WorldNavigationGrid.Instance;
             if (grid && !grid.HasBaked) return false;
+            int densityCount = MapFeaturePopulator.CountSpawnDensityItems(origin);
             int near = Mathf.Clamp(data.nearBoxCount, 0, boxCount);
             int mid = Mathf.Clamp(data.midBoxCount, 0, boxCount - near);
             bool isNear = index < near;
@@ -218,8 +238,6 @@ namespace GameData.Player.Script
             if (rule)
             {
                 var terrain = mapFeatures.Arena;
-                if (!bonus && terrain is TerrainGenerator native && native.TryGetLootSpawn(index, out position))
-                    return true;
                 int tier = rule.minTier + (rule.maxTier - rule.minTier + 1) * index / boxCount;
                 Vector3 reachableFrom = bonus ? cards.Player.transform.position : origin;
                 int pathAttempts = 0;
@@ -227,6 +245,7 @@ namespace GameData.Player.Script
                 {
                     float distance = Vector3.ProjectOnPlane(p - origin, Vector3.up).magnitude;
                     if (!bonus && (distance < min || distance > max)) return false;
+                    if (MapFeaturePopulator.SpawnDensityLimitReached(p, origin, densityCount)) return false;
                     foreach (var box in boxes)
                         if (box && (box.transform.position - p).sqrMagnitude < rule.spacing * rule.spacing)
                             return false;
@@ -235,6 +254,12 @@ namespace GameData.Player.Script
                         (!bonus || pathAttempts++ < 24) && grid.TryFindPath(reachableFrom, p, placementPath));
                 }
 
+                if (!bonus && terrain is TerrainGenerator native && native.TryGetLootSpawn(index, out var authoredPoint) &&
+                    Fits(authoredPoint))
+                {
+                    position = authoredPoint;
+                    return true;
+                }
                 if (bonus)
                     return terrain.TryGetFlatSpot(0, terrain.MaxTier, rule.clearance, rule.spacing, Fits, out position, out _);
                 if (terrain.TryGetFlatSpot(tier, tier, rule.clearance, rule.spacing, Fits, out position, out _) ||
@@ -263,6 +288,7 @@ namespace GameData.Player.Script
                 if (grid && !grid.TryGetGroundPoint(candidate, out candidate)) continue;
                 bool nav=NavMesh.SamplePosition(candidate,out var walkable,1.25f,NavMesh.AllAreas);if(nav)candidate=walkable.position;
                 float distance=Vector3.ProjectOnPlane(candidate-origin,Vector3.up).magnitude;if(distance<min||distance>max)continue;
+                if (MapFeaturePopulator.SpawnDensityLimitReached(candidate, origin, densityCount)) continue;
                 int count=Physics.RaycastNonAlloc(candidate+Vector3.up*8,Vector3.down,groundHits,40,data.groundLayers,QueryTriggerInteraction.Ignore);
                 bool found=false;float top=float.NegativeInfinity;
                 for(int i=0;i<count;i++){var hit=groundHits[i];if(hit.normal.y<.7f||hit.collider.GetComponentInParent<CharacterHealth>()||hit.collider.GetComponentInParent<SurvivorLootBox>())continue;if(nav&&Mathf.Abs(hit.point.y-candidate.y)>1.5f)continue;if(hit.point.y>top){top=hit.point.y;position=hit.point;found=true;}}

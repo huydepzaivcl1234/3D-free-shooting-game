@@ -6,7 +6,7 @@ namespace GameData.Player.Script
     {
         public GameObject prefab;
         [Tooltip("Number of loot boxes placed on the map when a run starts.")]
-        [Range(0, 50)] public int startingBoxCount = 8;
+        [Range(0, 50)] public int startingBoxCount = 10;
         [Header("Blue Ability Loot Boxes")]
         public GameObject abilityBoxPrefab;
         [Range(0, 50)] public int startingAbilityBoxCount = 10;

@@ -112,8 +112,16 @@ namespace MiningSimulator.Ores
                 (forestGolem == null || !forestGolem.IsCharging))
             {
                 TerrainMotor.AddSupportImpact(velocity);
-                nextBrainTick = 0f;
+                InvalidateMovementAfterKnockback();
             }
+        }
+        private void InvalidateMovementAfterKnockback()
+        {
+            navigation?.Reset();
+            directTerrainPursuit = false;
+            cachedMovement = Vector3.zero;
+            skippedBrainTime = 0f;
+            nextBrainTick = 0f;
         }
         private readonly MonsterCombatSettings legacyNavigation = new();
         private float perceptionClock, nextTargetScan, lastTargetSeen;
@@ -186,6 +194,8 @@ namespace MiningSimulator.Ores
             visibility=GetComponent<WorldActorVisibility>();
             IsGodSummon = godSummon;
             ResetRetaliation();
+            supportAggroTarget = null;
+            nextSupportAggroScan = 0f;
             skullCombo.Reset();
             skullJumpGate.Reset(); skullApproachTarget = null;
             skullJumpActive = false;
@@ -324,7 +334,10 @@ namespace MiningSimulator.Ores
             if (health.Health <= 0f) return;
             if (health.IsGunShot && health.LastDamageSource && !IsBoss && !skullJumpActive &&
                 (forestGolem == null || !forestGolem.IsCharging))
-                terrainMotor?.AddImpact(health.LastDamageSource.transform.position);
+            {
+                TerrainMotor.AddImpact(health.LastDamageSource.transform.position);
+                InvalidateMovementAfterKnockback();
+            }
             if (thief != null) { thief.OnDamaged(); PlayHitReaction(); return; }
             if (!IsSupportAlly && !TryRememberSupportAttacker()) RememberPlayerAttacker();
             if (forestGolem != null && forestGolem.IsCharging) return;
@@ -378,7 +391,7 @@ namespace MiningSimulator.Ores
                 zone.GrantRewards(rewards, transform.position + Vector3.up * 0.6f,
                     IsBoss ? MonsterLootSettings.BossGold(bossSettings.goldMultiplier) : 1f,
                     IsBoss ? MonsterLootSettings.BossExperience(bossSettings.experienceMultiplier) : 1f, Level, creditedPlayer);
-                if (!IsBoss) zone.TryReviveSupportAlly(this, creditedPlayer);
+                zone.TryReviveSupportAlly(this, creditedPlayer);
             }
             Destroy(gameObject, deathDelay);
         }
@@ -760,6 +773,7 @@ private bool UpdatePlayerTarget(float dt)
             if (IsSupportAlly) return UpdateSupportTarget();
             if (retaliationTarget && retaliationTarget.TryGetComponent<MushroomMonster>(out var ally) &&
                 ally.IsSupportAlly && TrySelectRetaliationTarget()) return true;
+            if (TrySelectNearbySupportAlly()) return true;
             if(playerTarget&&!playerTarget.IsTargetable)
             {
                 if(target==playerTarget){target=null;targetCollider=null;navigation?.Reset();}

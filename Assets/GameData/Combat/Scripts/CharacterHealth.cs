@@ -25,10 +25,16 @@ namespace MiningSimulator.Ores
         public bool IsTargetable=>health>0&&!(survival&&survival.ReprieveActive);
         public static event System.Action<CharacterHealth,GameObject> AnyDied;
         private static readonly System.Collections.Generic.HashSet<CharacterHealth> activeMonsters=new();
+        private static readonly System.Collections.Generic.HashSet<CharacterHealth> activeSupportAllies=new();
         public static System.Collections.Generic.IReadOnlyCollection<CharacterHealth> ActiveMonsters=>activeMonsters;
-        internal void ExcludeSupportAllyFromEnemyTargets() => activeMonsters.Remove(this);
+        internal static System.Collections.Generic.IReadOnlyCollection<CharacterHealth> ActiveSupportAllies=>activeSupportAllies;
+        internal void RegisterSupportAlly()
+        {
+            activeMonsters.Remove(this);
+            activeSupportAllies.Add(this);
+        }
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-        private static void ResetDamageObservers() { AnyDamaged=null;AnyDied=null;activeMonsters.Clear(); }
+        private static void ResetDamageObservers() { AnyDamaged=null;AnyDied=null;activeMonsters.Clear();activeSupportAllies.Clear(); }
         public event System.Action Died;
         [SerializeField] private Transform healthBar;
         [SerializeField] private MicroBar microBar;
@@ -255,12 +261,16 @@ public void ConfigureMaximumHealth(float value, bool preserveDamage = true)
 
         private void OnEnable()
         {
-            if(IsMonster && (combatOwner == null || !combatOwner.IsSupportAlly))activeMonsters.Add(this);
+            if(IsMonster)
+            {
+                if(combatOwner != null && combatOwner.IsSupportAlly)activeSupportAllies.Add(this);
+                else activeMonsters.Add(this);
+            }
             regenTimer = 0f;
             MiningLocalization.LanguageChanged += RefreshLabel;
         }
 
-        private void OnDisable() { if(burnEffect)burnEffect.SetActive(false);activeMonsters.Remove(this);MiningLocalization.LanguageChanged -= RefreshLabel; }
+        private void OnDisable() { if(burnEffect)burnEffect.SetActive(false);activeMonsters.Remove(this);activeSupportAllies.Remove(this);MiningLocalization.LanguageChanged -= RefreshLabel; }
 
         private void Update()
         {
@@ -374,9 +384,8 @@ public void ConfigureMaximumHealth(float value, bool preserveDamage = true)
         private void Refresh(bool skipAnimation, UpdateAnim updateType = UpdateAnim.Damage)
         {
             var monster = combatOwner;
-            bool showBar = screenSpaceBar || godOwner != null || monster != null && monster.IsBoss || health < MaxHealth - 0.001f;
-            // Enable before updating MicroBar so the first hit after spawning
-            // animates correctly; hide the whole bar (including its text) at full HP.
+            bool showBar = screenSpaceBar || godOwner != null || monster != null && (monster.IsBoss || monster.IsSupportAlly) || health < MaxHealth - 0.001f;
+            // Enable before updating MicroBar so the first hit after spawning animates correctly.
             if (showBar && healthBar != null && !healthBar.gameObject.activeSelf)
                 healthBar.gameObject.SetActive(true);
             // Only initialization/respawn snaps. Damage and healing use the

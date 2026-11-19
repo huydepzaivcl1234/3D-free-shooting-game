@@ -432,7 +432,8 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
 
         internal void TryReviveSupportAlly(MushroomMonster fallen, CharacterHealth creditedPlayer)
         {
-            if (!creditedPlayer || !liveSpecies.TryGetValue(fallen, out var entry) || !entry.prefab) return;
+            if (!fallen || fallen.TryGetComponent<GodBossController>(out _) || !creditedPlayer ||
+                !liveSpecies.TryGetValue(fallen, out var entry) || !entry.prefab) return;
             int level = PlayerSupportUpgrades.For(creditedPlayer)?.Level(SupportUpgradeId.ReviveAlly) ?? 0;
             if (level <= 0 || UnityEngine.Random.value >= .10f) return;
 

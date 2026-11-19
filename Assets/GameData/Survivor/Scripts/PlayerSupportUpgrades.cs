@@ -183,6 +183,7 @@ namespace MiningSimulator.Ores
                     break;
                 }
             SupportUpgradeHud.Attach(this);
+            SurvivorUpgradeDebugPanel.Attach(GetComponent<PlayerStats>());
         }
 
         public float Scaled(SupportUpgradeId id, float first, float perExtra)
@@ -254,14 +255,40 @@ namespace MiningSimulator.Ores
                     abilities.ScaleSupportShield(ShieldStrengthMultiplier);
             }
             if (pillar != null) claimedPillars.Add(pillar);
+            SaveProgress();
+            Granted?.Invoke(id);
+            return true;
+        }
+
+        internal bool DebugSetLevel(SupportUpgradeId id, int targetLevel)
+        {
+            if (invalidSave || !Application.isPlaying || GameSave.SuppressWrites || !GameSave.Store.Writable ||
+                RunCheckpoint.IsRestoring || !health || health.Health <= 0 || (uint)id >= (uint)levels.Length ||
+                targetLevel < Level(id) || targetLevel > LevelCap) return false;
+            int current = Level(id);
+            if (targetLevel == current) return true;
+
+            levels[(int)id] = targetLevel;
+            if (id == SupportUpgradeId.ShieldBurst && current == 0)
+            {
+                temporaryShield *= ShieldStrengthMultiplier;
+                shieldDecay *= ShieldStrengthMultiplier;
+                if (TryGetComponent<SurvivorAbilities>(out var abilities))
+                    abilities.ScaleSupportShield(ShieldStrengthMultiplier);
+            }
+            SaveProgress();
+            Granted?.Invoke(id);
+            return true;
+        }
+
+        private void SaveProgress()
+        {
             GameSave.SetString(SaveKey, JsonUtility.ToJson(new Progress
             {
                 levels = levels,
                 claimedPillars = new List<string>(claimedPillars)
             }));
             GameSave.Save();
-            Granted?.Invoke(id);
-            return true;
         }
 
         private static MiningItemRarity RarityForRoll(SupportUpgradeDefinition definition) => definition.Rarity switch

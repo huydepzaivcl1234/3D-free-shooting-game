@@ -12,8 +12,32 @@ namespace GameData.Player.Editor
         private HelpBox result;
         private Toggle clipOnly, pauseSpawns;
 
-        [MenuItem("Tools/Debug/Weapon Test _F8")]
+        [MenuItem("Tools/Debug/Weapon Test")]
         public static void Open() => GetWindow<WeaponDebugWindow>("Weapon Debug");
+
+        [MenuItem("Tools/Debug/Survivor Upgrade Debug _F8")]
+        public static void ToggleSurvivorUpgradeDebug()
+        {
+            if (!EditorApplication.isPlaying)
+            {
+                Debug.LogWarning("Enter Play Mode and start a Survivor run before opening the upgrade debug panel.");
+                return;
+            }
+
+            var panel = Object.FindAnyObjectByType<Script.SurvivorUpgradeDebugPanel>();
+            if (!panel)
+            {
+                Debug.LogWarning("The upgrade debug panel is available after the player enters gameplay.");
+                return;
+            }
+
+            if (!panel.ToggleFromEditor())
+            {
+                Debug.LogWarning("Close the current menu before opening the upgrade debug panel.");
+                return;
+            }
+            EditorApplication.ExecuteMenuItem("Window/General/Game");
+        }
 
         public void CreateGUI()
         {
@@ -39,7 +63,7 @@ namespace GameData.Player.Editor
             controls.Add(pauseSpawns);
             controls.Add(new HelpBox("Pause chặn quái mới và triệu hồi; quái đang có vẫn hoạt động. Trạng thái debug reset khi Play lại.", HelpBoxMessageType.Info));
             controls.Add(new Button(ReturnToGame) { text = "Về Game / Resume", name = "resume" });
-            result = new HelpBox("F8 mở bảng. Chọn súng rồi bấm Về Game để test.", HelpBoxMessageType.Info);
+            result = new HelpBox("Mở từ Tools > Debug > Weapon Test. Chọn súng rồi bấm Về Game để test. / Open from Tools > Debug > Weapon Test, select a weapon, then click Return to Game.", HelpBoxMessageType.Info);
             root.Add(result);
             root.schedule.Execute(Refresh).Every(250);
             Refresh();

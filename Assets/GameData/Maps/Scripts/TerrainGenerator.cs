@@ -15,7 +15,8 @@ namespace MiningSimulator.Ores
         bool TryGetFlatSupport(Vector3 point, float clearance, out Vector3 surface, out Vector3 normal);
         bool TryGetFlatSpot(int minTier, int maxTier, float clearance, float separation,
             Predicate<Vector3> accepts, out Vector3 position, out Vector3 normal);
-        bool TryGetDecorationSpot(System.Random random, float clearance, float separation, out Vector3 point);
+        bool TryGetDecorationSpot(System.Random random, float clearance, float separation,
+            Predicate<Vector3> accepts, out Vector3 point);
     }
 
     [DefaultExecutionOrder(-110)]
@@ -469,7 +470,8 @@ namespace MiningSimulator.Ores
             return false;
         }
 
-        public bool TryGetDecorationSpot(System.Random random, float clearance, float separation, out Vector3 point)
+        public bool TryGetDecorationSpot(System.Random random, float clearance, float separation,
+            Predicate<Vector3> accepts, out Vector3 point)
         {
             point = default;
             if (flatSpots.Count == 0) return false;
@@ -479,7 +481,8 @@ namespace MiningSimulator.Ores
                 if (!IsSeparated(occupied, spot, Mathf.Max(clearance, separation)) ||
                     !SeparatedFromDecoration(spot, Mathf.Max(clearance, separation)) ||
                     (WorldNavigationGrid.Instance && WorldNavigationGrid.Instance.IsPortalSpawnExcluded(spot, clearance)) ||
-                    !TryGetFlatSupport(spot, clearance, out point, out _)) continue;
+                    !TryGetFlatSupport(spot, clearance, out point, out _) ||
+                    (accepts != null && !accepts(point))) continue;
                 decorationSpots.Add((point, Mathf.Max(clearance, separation)));
                 return true;
             }

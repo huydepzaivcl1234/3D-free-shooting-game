@@ -57,8 +57,9 @@ namespace MiningSimulator.Ores
             Predicate<Vector3> accepts, out Vector3 point, out Vector3 normal) =>
             TryGetFlatSpot(minTier, maxTier, clearance, separation, accepts, out point, out normal);
 
-        bool IProceduralArena.TryGetDecorationSpot(System.Random random, float clearance, float separation, out Vector3 point) =>
-            TryGetDecorationSpot(random, clearance, separation, out point);
+        bool IProceduralArena.TryGetDecorationSpot(System.Random random, float clearance, float separation,
+            Predicate<Vector3> accepts, out Vector3 point) =>
+            TryGetDecorationSpot(random, clearance, separation, accepts, out point);
 
         private void Start()
         {
@@ -425,7 +426,8 @@ namespace MiningSimulator.Ores
 
         private readonly List<Vector3> decorations = new();
 
-        internal bool TryGetDecorationSpot(System.Random random, float clearance, float separation, out Vector3 point)
+        internal bool TryGetDecorationSpot(System.Random random, float clearance, float separation,
+            Predicate<Vector3> accepts, out Vector3 point)
         {
             point = default;
             if (!hasLayout || flatSpots.Count == 0) return false;
@@ -448,7 +450,7 @@ namespace MiningSimulator.Ores
                     safe = TrySample(candidate + new Vector3(dir.x, 0, dir.y) * clearance, out var support, out _) &&
                         Mathf.Abs(candidate.y - support.y) < .14f;
                 }
-                if (!safe) continue;
+                if (!safe || (accepts != null && !accepts(candidate))) continue;
                 decorations.Add(candidate);
                 point = candidate;
                 return true;

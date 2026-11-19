@@ -28,6 +28,24 @@ namespace MiningSimulator.Ores
             float total=UpgradeBonus(id)+amount;if(float.IsInfinity(total))return false;
             upgradeLevels[(int)id]++;upgradeTotals[(int)id]=total;dirty=true;ApplyBodySize();SaveProgress();return true;
         }
+        internal bool DebugSetUpgradeLevel(SurvivorUpgradeId id, int targetLevel, float amountPerLevel)
+        {
+            EnsureUpgradeCapacity();
+            int current = UpgradeLevel(id);
+            if (!Application.isPlaying || saveBlocked || (uint)id >= (uint)SurvivorUpgradeId.Count ||
+                targetLevel < current || targetLevel > SurvivorUpgradeData.LevelCap || amountPerLevel <= 0f ||
+                float.IsNaN(amountPerLevel) || float.IsInfinity(amountPerLevel)) return false;
+            if (targetLevel == current) return true;
+
+            float total = UpgradeBonus(id) + amountPerLevel * (targetLevel - current);
+            if (float.IsNaN(total) || float.IsInfinity(total)) return false;
+            upgradeLevels[(int)id] = targetLevel;
+            upgradeTotals[(int)id] = total;
+            dirty = true;
+            ApplyBodySize();
+            SaveProgress();
+            return true;
+        }
         private Vector3 authoredBodyScale;
         private float appliedBodySize=1;
         private bool HasTitan=>UpgradeLevel(SurvivorUpgradeId.TitanBlessing)>0;

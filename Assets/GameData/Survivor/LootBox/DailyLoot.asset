@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: DailyLoot
   m_EditorClassIdentifier: Assembly-CSharp::GameData.Player.Script.SurvivorLootData
   prefab: {fileID: 711452718665089092, guid: 3dd77db30906f0b4987a1b2af43650a5, type: 3}
-  startingBoxCount: 8
+  startingBoxCount: 10
   abilityBoxPrefab: {fileID: 711452718665089092, guid: 58df286fd5624f3893d8a6ed6d4ac5b9, type: 3}
   startingAbilityBoxCount: 10
   nearBoxCount: 4
