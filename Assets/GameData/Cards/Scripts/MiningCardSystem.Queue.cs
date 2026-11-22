@@ -101,6 +101,11 @@ namespace MiningSimulator.Ores
                 return;
             }
             if (!lootDraftOwner) lootDraftOwner = FindAnyObjectByType<SurvivorDailyLoot>();
+            if (!lootRerollButton && rustLayout)
+            {
+                lootRerollButton = rustLayout.BuildReroll(out lootRerollLabel);
+                lootRerollButton.onClick.AddListener(RerollLootDraft);
+            }
             if (!lootRerollButton)
             {
                 var rect = Box(choicePanel, "Lootbox reroll", Vector2.zero, Vector2.one, Hex("305260"));

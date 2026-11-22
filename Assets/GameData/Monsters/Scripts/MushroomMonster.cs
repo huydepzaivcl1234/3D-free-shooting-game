@@ -40,7 +40,7 @@ namespace MiningSimulator.Ores
         private float ActiveAreaRadius => IsSkullclawJump ? Skullclaw.jumpAreaRadius : secondAttack ? secondAreaRadius : areaRadius;
         [Min(0f), SerializeField] [HideInInspector, UnityEngine.Serialization.FormerlySerializedAs("moveSpeed")] private float legacy_moveSpeed = 1.5f;
         private float BaseMoveSpeed => (CombatData != null ? CombatData.moveSpeed : legacy_moveSpeed) *
-            (zone && !IsBoss && !IsGodSummon ? zone.StageMoveMultiplier : 1);
+            (zone && !IsGodSummon ? zone.StageMoveMultiplier : 1);
         private float moveSpeed => (IsSupportAlly ? supportMoveSpeed : BaseMoveSpeed) *
             (health && health.EnemyStatus ? health.EnemyStatus.MovementMultiplier : 1);
         [Min(0f), SerializeField] [HideInInspector, UnityEngine.Serialization.FormerlySerializedAs("detectionRange")] private float legacy_detectionRange = 6f;
@@ -73,7 +73,8 @@ namespace MiningSimulator.Ores
         private Shader warningShader => CombatData != null ? CombatData.warningShader : legacy_warningShader;
         private MonsterAttackWarning groundWarning;
         private Vector3 strikeCenter, strikeForward;
-        private bool strikeLocked;
+        private bool strikeLocked, strikeBraced;
+        private const float GolemBraceSeconds = 1f;
         [Min(0f), SerializeField] [HideInInspector, UnityEngine.Serialization.FormerlySerializedAs("deathDelay")] private float legacy_deathDelay = 3f;
         private float deathDelay => CombatData != null ? CombatData.deathDelay : legacy_deathDelay;
         [SerializeField, InspectorName("Monster Game Data")] private MonsterRewardData rewards;
@@ -81,19 +82,21 @@ namespace MiningSimulator.Ores
         private CharacterController motor;
         private WorldActorVisibility visibility;
         private bool softCrowd;
+        private float crowdSupport;
+        internal float CrowdClimbHeight => terrainMotor?.CrowdClimbHeight ?? 0f;
         private Vector3 crowdOffset;
         private float nextCrowdSample,nextBrainTick,skippedBrainTime,navigationStep;
         private Vector3 cachedMovement;
         private static readonly int WalkStateHash=Animator.StringToHash("Walk");
         private LayerMask originalCrowdExcludes;
         internal CharacterController CrowdMotor=>motor;
-        internal bool CrowdActive=>isActiveAndEnabled&&!IsDespawning&&health&&health.Health>0&&(!visibility||!visibility.SimulationPaused);
+        internal bool CrowdActive=>!IsOvertimeGhost&&isActiveAndEnabled&&!IsDespawning&&health&&health.Health>0&&(!visibility||!visibility.SimulationPaused);
         private void ConfigureCrowd(bool enabled)
         {
             if(!motor||enabled==softCrowd)return;
             if(enabled){originalCrowdExcludes=motor.excludeLayers;motor.excludeLayers=originalCrowdExcludes.value|LayerMask.GetMask("Enemy");}
             else motor.excludeLayers=originalCrowdExcludes;
-            softCrowd=enabled;crowdOffset=Vector3.zero;nextCrowdSample=Time.time+(GetHashCode()&1023)/1024f*.05f;
+            softCrowd=enabled;crowdSupport=0f;crowdOffset=Vector3.zero;nextCrowdSample=Time.time+(GetHashCode()&1023)/1024f*.05f;
         }
         private CharacterHealth health;
 
@@ -175,6 +178,7 @@ namespace MiningSimulator.Ores
         {
             transform.localScale *= Mathf.Max(0.01f, sizeMultiplier);
             scaledDamage *= Mathf.Max(0f, damageMultiplier);
+            scaledBurnDamage *= Mathf.Max(0f, damageMultiplier);
             if (healthMultiplier != 1f) health.ConfigureSpawnHealth(health.MaxHealth * Mathf.Max(.01f, healthMultiplier));
         }
         private float scaledBurnDamage;
@@ -235,12 +239,13 @@ namespace MiningSimulator.Ores
             if (rewards != null)
             {
                 health.ConfigureHealingBonus(rewards.healingBonusPercent);
-                health.ConfigureDefenses(rewards.ArmorAtLevel(Level), rewards.MagicResistanceAtLevel(Level), rewards.resistanceScale);
             }
+            health.ConfigureDefenses(0f, 0f, rewards ? rewards.resistanceScale : 100f);
             if (definition != null && !IsSupportAlly)
             {
                 encounterVisuals = gameObject.AddComponent<MonsterEncounterVisuals>();
                 encounterVisuals.Configure(this, definition, IsBoss ? bossSettings : null);
+                if (FollowsStageDirector) encounterVisuals.RestoreExpiry(0);
             }
             // In player-hunt scenes the thief uses normal combat instead of trying to rob a nonexistent chest.
             if (IsSupportAlly || owner != null && owner.PlayerHuntMode) thief = null;
@@ -332,6 +337,11 @@ namespace MiningSimulator.Ores
         private void OnDamage()
         {
             if (health.Health <= 0f) return;
+            if (IsOvertimeGhost)
+            {
+                if (!IsSupportAlly) TryRememberSupportAttacker();
+                return;
+            }
             if (health.IsGunShot && health.LastDamageSource && !IsBoss && !skullJumpActive &&
                 (forestGolem == null || !forestGolem.IsCharging))
             {
@@ -368,12 +378,11 @@ namespace MiningSimulator.Ores
             if (zone != null && !IsSupportAlly) zone.NotifyDefeated(transform.position);
             if (thief != null) thief.OnKilled();
             var killer = health.LastDamageSource;
+            float experienceMultiplier = (IsBoss ? MonsterLootSettings.BossExperience(bossSettings.experienceMultiplier) : 1f) *
+                (zone ? zone.VariantExperience(DirectorVariant) : 1f);
             if (!IsSupportAlly)
                 MonsterKillCredit.Notify(killer, SpeciesData, IsBoss,
-                    rewards != null ? MonsterLootSettings.RewardsFor(rewards).experience * (IsBoss ? MonsterLootSettings.BossExperience(bossSettings.experienceMultiplier) : 1f) : 0f);
-            var breadRagdoll=GetComponent<BreadMonsterRagdoll>();
-            bool pooledRagdoll=RagdollSettings.Current&&RagdollSettings.Current.monsterRagdolls&&animator&&(breadRagdoll||GetComponent<PotionMonsterAbility>());
-            if(!breadRagdoll&&!pooledRagdoll)Play("Down");
+                    rewards != null ? MonsterLootSettings.RewardsFor(rewards).experience * experienceMultiplier : 0f);
             var cards = !IsSupportAlly ? FindFirstObjectByType<MiningCardSystem>() : null;
             if (cards != null) cards.TryDrop(transform.position, IsBoss,rewards);
             motor.enabled = false;
@@ -383,16 +392,27 @@ namespace MiningSimulator.Ores
             health.enabled = false;
             if (health.HealthBar != null) health.HealthBar.gameObject.SetActive(false);
             foreach (var shape in GetComponentsInChildren<Collider>()) shape.enabled = false;
-            if(pooledRagdoll)MonsterCorpsePool.Spawn(this,animator,ragdollVelocity);
-            else if(breadRagdoll)breadRagdoll.Activate();
             if (zone != null && !IsSupportAlly)
             {
                 var creditedPlayer = zone.ResolveSupportKillPlayer(killer);
                 zone.GrantRewards(rewards, transform.position + Vector3.up * 0.6f,
                     IsBoss ? MonsterLootSettings.BossGold(bossSettings.goldMultiplier) : 1f,
-                    IsBoss ? MonsterLootSettings.BossExperience(bossSettings.experienceMultiplier) : 1f, Level, creditedPlayer);
-                zone.TryReviveSupportAlly(this, creditedPlayer);
+                    experienceMultiplier, Level, creditedPlayer);
+                zone.OnDirectorEnemyDefeated(DirectorVariant, transform.position);
+                if (zone.TryReviveSupportAlly(this, creditedPlayer))
+                {
+                    // Keep death listeners intact while removing the old model before it renders.
+                    foreach (var renderer in GetComponentsInChildren<Renderer>()) renderer.forceRenderingOff = true;
+                    if (animator) animator.enabled = false;
+                    Destroy(gameObject);
+                    return;
+                }
             }
+            var breadRagdoll=GetComponent<BreadMonsterRagdoll>();
+            bool pooledRagdoll=RagdollSettings.Current&&RagdollSettings.Current.monsterRagdolls&&animator&&(breadRagdoll||GetComponent<PotionMonsterAbility>());
+            if(pooledRagdoll)MonsterCorpsePool.Spawn(this,animator,ragdollVelocity);
+            else if(breadRagdoll)breadRagdoll.Activate();
+            else if (!IsOvertimeGhost) Play("Down");
             Destroy(gameObject, deathDelay);
         }
         private void OnControllerColliderHit(ControllerColliderHit hit) => terrainMotor?.RecordGroundContact(hit);
@@ -457,6 +477,7 @@ namespace MiningSimulator.Ores
                 Vector3 facing = Vector3.ProjectOnPlane(victim - transform.position, Vector3.up);
                 if (facing.sqrMagnitude > .001f) transform.rotation = Quaternion.LookRotation(facing);
                 strikeLocked = true;
+                strikeBraced = false;
                 UpdateStrikeCenter();
                 if (!rangedStrike && hitShape == HitShape.Area)
                 {
@@ -499,17 +520,34 @@ namespace MiningSimulator.Ores
             strikeForward = transform.forward;
             strikeCenter = hitShape == HitShape.Area ? AreaCenter : transform.position;
         }
-        private void TrackAttackTarget(float normalizedTime)
+        private bool IsGolemSlam => SpeciesData is GolemData or ForestGolemData;
+
+        private bool ShouldBraceGolemSlam(AnimatorStateInfo windup)
+        {
+            if (!IsGolemSlam || hitApplied) return false;
+            // AnimatorStateInfo.length already includes the effective playback speed.
+            float secondsToContact = (ActiveHitMoment - windup.normalizedTime) * windup.length;
+            return secondsToContact <= GolemBraceSeconds;
+        }
+
+        private void TrackAttackTarget(float normalizedTime, bool bracing)
         {
             if (IsSkullclawJump) return; // landing point commits at takeoff; no homing through walls
-            if (hitApplied || normalizedTime >= ActiveHitMoment * trackingEndFraction) return;
-            Transform victim = target != null && target.Health > 0f ? target.transform : null;
-            if (victim == null) return;
-            Vector3 facing = Vector3.ProjectOnPlane(victim.position - transform.position, Vector3.up);
-            if (facing.sqrMagnitude > .001f)
-                transform.rotation = Quaternion.RotateTowards(transform.rotation, Quaternion.LookRotation(facing), attackTurnSpeed * Time.deltaTime);
-            UpdateStrikeCenter();
-            if (groundWarning != null && hitShape == HitShape.Area) groundWarning.MoveCenter(strikeCenter, transform);
+            bool golemSlam = IsGolemSlam && !rangedStrike;
+            if (hitApplied ? !golemSlam : strikeBraced) return;
+            strikeBraced = bracing;
+            bool tracking = golemSlam ? !bracing : normalizedTime < ActiveHitMoment * trackingEndFraction;
+            if (tracking && target && target.IsTargetable)
+            {
+                Vector3 facing = Vector3.ProjectOnPlane(target.transform.position - transform.position, Vector3.up);
+                if (facing.sqrMagnitude > .001f)
+                    transform.rotation = Quaternion.RotateTowards(transform.rotation, Quaternion.LookRotation(facing), attackTurnSpeed * Time.deltaTime);
+            }
+            if (!hitApplied)
+            {
+                UpdateStrikeCenter();
+                if (groundWarning != null && hitShape == HitShape.Area) groundWarning.MoveCenter(strikeCenter, transform);
+            }
         }
         public void ResumeVisibilityTimers(float seconds){nextAttack+=seconds;nextDecision+=seconds;}
         private void Update()
@@ -518,10 +556,19 @@ namespace MiningSimulator.Ores
             if(TryGetComponent<GameData.Player.Script.SurvivorEnemyStatus>(out var abilityStatus)&&abilityStatus.Airborne)return;
             using var sample = MonsterUpdate.Auto();
             if (RuneStation.PlayerUsesRuneTime) return;
-            if (health.Health <= 0f || animator == null) return;
-            if (IsDespawning) return;
+            if (health.Health <= 0f || IsDespawning) return;
+            if (IsOvertimeGhost)
+            {
+                TickGhostFlight(Time.deltaTime);
+                return;
+            }
+            if (animator == null) return;
+            if (IsSupportAlly) UpdateSupportTarget();
+            else if (zone && zone.PlayerHuntMode && !TrySelectCloserAlly() && target != playerTarget)
+                SetCombatTarget(playerTarget && playerTarget.IsTargetable ? playerTarget : null);
+            bool knockedBack = terrainMotor?.IsKnockedBack == true;
             var cpu=GameplayPerformanceData.Current;
-            if(cpu&&cpu.simplifyDistantAI&&zone&&zone.PlayerHuntMode&&Time.time<nextBrainTick&&
+            if(!knockedBack&&cpu&&cpu.simplifyDistantAI&&zone&&zone.PlayerHuntMode&&Time.time<nextBrainTick&&
                 !IsBoss&&Skullclaw==null&&forestGolem==null&&thief==null&&rangedAttack==null&&!damageReactionPending&&
                 animationState==WalkStateHash&&target&&target==playerTarget&&target.IsTargetable&&motor.isGrounded&&
                 (target.transform.position-transform.position).sqrMagnitude>cpu.distantSteeringDistance*cpu.distantSteeringDistance&&
@@ -559,24 +606,30 @@ namespace MiningSimulator.Ores
             bool reacting=damageReactionPending||(damageState&&state.normalizedTime<1f)||nextDamage;
             var windup = animator.IsInTransition(0) && animator.GetNextAnimatorStateInfo(0).IsName(ActiveAttackState)
                 ? animator.GetNextAnimatorStateInfo(0) : state;
-            bool jumpMoved = windup.IsName(ActiveAttackState) && MoveSkullclawJump(windup.normalizedTime);
+            bool committedAttack = animationState == attackStateHash && windup.IsName(ActiveAttackState);
+            bool meleeSwing = committedAttack && !rangedStrike;
+            bool jumpMoved = committedAttack && MoveSkullclawJump(windup.normalizedTime);
             if (jumpMoved) terrainMotor?.Reset();
-            if (windup.IsName(ActiveAttackState) && animationState == attackStateHash) TrackAttackTarget(windup.normalizedTime);
+            // A Golem can recover from an early bump. Recoil at the impact frame still cancels the hit.
+            bool atContact = attacking && !animator.IsInTransition(0) && state.normalizedTime >= ActiveHitMoment;
+            if (meleeSwing && !IsSkullclawJump && knockedBack && (!IsGolemSlam || atContact))
+                hitApplied = true;
+            bool bracing = meleeSwing && ShouldBraceGolemSlam(windup);
+            if (committedAttack) TrackAttackTarget(windup.normalizedTime, bracing);
             if (groundWarning != null)
             {
                 if (windup.IsName(ActiveAttackState) && !hitApplied)
                     groundWarning.SetProgress(Mathf.Clamp01(windup.normalizedTime / Mathf.Max(.001f, ActiveHitMoment)));
                 else if (hitApplied || animationState != attackStateHash) groundWarning.Hide();
             }
-            if (attacking && !animator.IsInTransition(0) && !hitApplied &&
-                state.normalizedTime >= ActiveHitMoment && (!IsSkullclawJump || motor.isGrounded))
+            if (committedAttack && atContact && !hitApplied && (!IsSkullclawJump || motor.isGrounded))
             {
                 hitApplied = true;
                 // Retain the boss strike counter; the replacement controller owns player movement effects.
                 bossSkill.NotifyStrike();
                 if (groundWarning != null) groundWarning.Hide();
                 // One contact per swing. Area and sweep can hit every victim inside the same shown volume.
-                if (!rangedStrike && forestGolem != null) forestGolem.BeginSlam(strikeCenter, EffectiveAreaRadius, HitScale, hitHeight * HitScale);
+                if (!rangedStrike && forestGolem != null) forestGolem.BeginSlam(strikeCenter, EffectiveAreaRadius, HitScale, hitHeight * HitScale, target);
                 if (rangedStrike)
                     rangedAttack.Fire(this, target != null && target.Health > 0f ? target.transform : null);
                 if (IsSkullclawJump) ApplySkullclawAreaHit();
@@ -590,7 +643,11 @@ namespace MiningSimulator.Ores
                         animator.speed = baseAnimatorSpeed * AttackSpeed;
                     }
                     ApplyHitHealing(dealt);
-                    if (forestGolem != null && target == playerTarget) { forestGolem.RememberHit(target); forestGolem.NotifyPlayerHit(target, dealt); }
+                    if (forestGolem != null)
+                    {
+                        forestGolem.RememberHit(target);
+                        if (target == playerTarget) forestGolem.NotifyPlayerHit(target, dealt);
+                    }
                     if (dealt > 0f && rewards != null)
                         target.ApplyBurn(scaledBurnDamage, rewards.burnTickSeconds, rewards.burnDurationSeconds,
                             IsSupportAlly ? gameObject : null);
@@ -600,11 +657,16 @@ namespace MiningSimulator.Ores
             }
             Vector3 movement = Vector3.zero;
             bool skullRecovery = FinishSkullclawAttack(state);
-            bool movingSkullStrike=Skullclaw!=null&&!IsSkullclawJump&&!reacting&&!skullRecovery&&animationState==attackStateHash&&(attacking||windup.IsName(ActiveAttackState));
-            if(movingSkullStrike&&target&&target.IsTargetable){
-                destination=target.transform.position;
-                float contactDistance=Mathf.Max(EffectiveAttackRange*.65f,motor.radius*HitScale+.5f);
-                if(SkullclawTargetDistance>contactDistance)movement=ChaseDirection(true,contactDistance)*moveSpeed;
+            if (meleeSwing && !IsSkullclawJump && !reacting && !skullRecovery && !bracing && !knockedBack &&
+                target && target.IsTargetable)
+            {
+                destination = target.transform.position;
+                bool skullclaw = Skullclaw != null;
+                float bodyReach = motor.radius * HitScale + (skullclaw ? .5f : .15f);
+                float reach = IsGolemSlam ? bodyReach : Mathf.Max(EffectiveAttackRange * .65f, bodyReach);
+                float distance = skullclaw ? SkullclawTargetDistance :
+                    Vector3.ProjectOnPlane(destination - transform.position, Vector3.up).magnitude;
+                if (distance > reach) movement = ChaseDirection(true, reach, spread: !IsGolemSlam) * moveSpeed;
             }
             if (!skullRecovery && (reacting||!animator.IsInTransition(0)) && (!attacking || state.normalizedTime >= 1f))
             {
@@ -629,18 +691,15 @@ namespace MiningSimulator.Ores
                     (victim.position - transform.position).sqrMagnitude <= rangedAttack.Range * rangedAttack.Range &&
                     rangedAttack.CanReach(victim);
                 bool canMelee = !rangedOnly && victim && terrainMotor?.IsTraversing != true &&
-                    (Skullclaw != null ? CanSkullclawEngage : delta.sqrMagnitude <= EngagementRange * EngagementRange) &&
-                    HasStrikeLineOfSight(victim, targetCollider != null
-                        ? targetCollider.ClosestPoint(transform.TransformPoint(motor.center))
-                        : victim.position + Vector3.up * .5f);
+                    CanStartMelee(victim, delta);
                 bool canEngage = canShoot || canMelee;
-                if (canEngage && Time.time >= nextAttack && !reacting)
+                if (canEngage && Time.time >= nextAttack && !reacting && !knockedBack)
                 {
                     BeginAttack(canShoot && (rangedOnly || !canMelee || delta.sqrMagnitude > EffectiveAttackRange * EffectiveAttackRange));
                 }
                 else if (!canEngage && (chasing || delta.magnitude > .3f))
                 {
-                    movement = ChaseDirection(chasing) * moveSpeed;
+                    movement = ChaseDirection(chasing, spread: !IsGolemSlam) * moveSpeed;
                     if(!reacting)Play(movement.sqrMagnitude > 0f ? "Walk" : "Idle");
                 }
                 else if(!reacting)Play("Idle");
@@ -650,6 +709,7 @@ namespace MiningSimulator.Ores
             }
             if (!jumpMoved)
             {
+                if (knockedBack) movement = Vector3.zero;
                 cachedMovement=movement.sqrMagnitude>.0001f?movement.normalized:Vector3.zero;
                 MoveMotor(movement);
             }
@@ -663,13 +723,15 @@ namespace MiningSimulator.Ores
                 if(crowd&&movement.sqrMagnitude>.0001f){
                     var scale=transform.lossyScale;
                     if(Time.time>=nextCrowdSample){
-                        crowdOffset=MonsterCrowd.Velocity(this,movement,motor.radius*Mathf.Max(Mathf.Abs(scale.x),Mathf.Abs(scale.z)),performance)-movement;
+                        crowdOffset=MonsterCrowd.Velocity(this,movement,motor.radius*Mathf.Max(Mathf.Abs(scale.x),Mathf.Abs(scale.z)),
+                            performance,out crowdSupport)-movement;
                         nextCrowdSample=Time.time+.05f;
                     }
                     movement=Vector3.ClampMagnitude(movement+crowdOffset,movement.magnitude);
                 }
                 Vector3? goal = target && target.IsTargetable && playerDetected ? target.transform.position : null;
-                if (TerrainMotor.TryMove(movement, Time.deltaTime, goal)) return;
+                if (TerrainMotor.TryMove(movement, Time.deltaTime, goal,
+                    crowd && movement.sqrMagnitude > .0001f ? crowdSupport : 0f)) return;
                 verticalSpeed = motor.isGrounded ? -2f : verticalSpeed + Physics.gravity.y * Time.deltaTime;
                 motor.Move((movement + TerrainMotor.ConsumeImpact(Time.deltaTime) +
                     Vector3.up * verticalSpeed) * Time.deltaTime);
@@ -709,6 +771,24 @@ namespace MiningSimulator.Ores
             float radius = (hitShape == HitShape.Area ? ActiveAreaRadius : attackRange) * HitScale;
             return delta.sqrMagnitude <= radius * radius && (hitShape == HitShape.Area || delta.sqrMagnitude < .0001f || Vector3.Angle(forward, delta) <= attackArc * .5f);
         }
+        private bool CanStartMelee(Transform victim, Vector3 centerOffset)
+        {
+            Vector3 point = targetCollider && targetCollider.enabled
+                ? targetCollider.ClosestPoint(transform.TransformPoint(motor.center))
+                : victim.position + Vector3.up * .5f;
+
+            float range = EngagementRange;
+            if (IsGolemSlam || IsSupportAlly || target == supportAggroTarget)
+            {
+                // Large bodies can touch before their roots enter attack range.
+                centerOffset = point - transform.position;
+                centerOffset.y = 0f;
+                range = Mathf.Max(range, (motor.radius + motor.skinWidth) * HitScale + .15f);
+            }
+            bool inRange = Skullclaw != null ? CanSkullclawEngage : centerOffset.sqrMagnitude <= range * range;
+            return inRange && HasStrikeLineOfSight(victim, point);
+        }
+
         private bool ContainsVictim(Transform victim, Collider victimCollider)
         {
             Vector3 center = strikeLocked ? strikeCenter : hitShape == HitShape.Area ? AreaCenter : transform.position;
@@ -736,19 +816,20 @@ namespace MiningSimulator.Ores
                 {
                     Transform obstacle = obstructions[i].transform;
                     // Crowd neighbours are not cover. Static geometry still blocks strikes.
-                    if (obstacle != null && obstacle.GetComponentInParent<MushroomMonster>() != null) continue;
+                    if (obstacle && (obstacle.GetComponentInParent<MushroomMonster>() ||
+                        (playerTarget && obstacle.IsChildOf(playerTarget.transform)))) continue;
                     if (obstacle != null && !obstacle.IsChildOf(transform) && !obstacle.IsChildOf(victim)) return false;
                 }
             }
             return true;
         }
-private Vector3 ChaseDirection(bool chasing,float? reach=null)
+private Vector3 ChaseDirection(bool chasing,float? reach=null,bool spread=true)
         {
             // Ranged-only species need an approach inside throwing range, not an unreachable melee slot.
             float approachRange = reach ?? (CombatData != null && CombatData.rangedOnly && rangedAttack != null && rangedAttack.IsReady
                 ? rangedAttack.Range : EngagementRange);
             Vector3 direction = Vector3.zero;
-            bool direct = chasing && TerrainMotor.TryPursue(destination, approachRange, !IsBoss, out direction);
+            bool direct = chasing && TerrainMotor.TryPursue(destination, approachRange, spread && !IsBoss, out direction);
             if (direct != directTerrainPursuit)
             {
                 navigation?.Reset();
@@ -771,9 +852,7 @@ private Vector3 ChaseDirection(bool chasing,float? reach=null)
 private bool UpdatePlayerTarget(float dt)
         {
             if (IsSupportAlly) return UpdateSupportTarget();
-            if (retaliationTarget && retaliationTarget.TryGetComponent<MushroomMonster>(out var ally) &&
-                ally.IsSupportAlly && TrySelectRetaliationTarget()) return true;
-            if (TrySelectNearbySupportAlly()) return true;
+            if (TrySelectCloserAlly()) return true;
             if(playerTarget&&!playerTarget.IsTargetable)
             {
                 if(target==playerTarget){target=null;targetCollider=null;navigation?.Reset();}

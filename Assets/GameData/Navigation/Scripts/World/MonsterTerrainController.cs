@@ -68,6 +68,8 @@ namespace MiningSimulator.Ores
         private Vector3 walkNormal = Vector3.up, contactNormal = Vector3.up;
         private int contactFrame = -1;
 
+        internal float CrowdClimbHeight { get; private set; }
+
         internal bool HasVisualSupport => motor.enabled && motor.isGrounded && !IsTraversing;
         internal Vector3 VisualGroundNormal => arena ? walkNormal :
             contactFrame == Time.frameCount ? contactNormal : Vector3.up;
@@ -82,6 +84,7 @@ namespace MiningSimulator.Ores
         }
 
         internal bool IsTraversing => traversal != Traversal.Walking;
+        internal bool IsKnockedBack => math.lengthsq(impact) > .0025f;
         internal string State => traversal == Traversal.Climbing ? "Climbing wall" :
             traversal == Traversal.Falling ? "Dropping from cliff" : "Direct terrain pursuit";
 
@@ -162,6 +165,7 @@ namespace MiningSimulator.Ores
             contactFrame = -1;
             walkNormal = Vector3.up;
             verticalSpeed = blockedTime = cliffRetry = 0f;
+            CrowdClimbHeight = 0f;
             drive = impact = float2.zero;
             SetAirborne(false);
         }
@@ -186,7 +190,7 @@ namespace MiningSimulator.Ores
             return velocity;
         }
 
-        internal bool TryMove(Vector3 velocity, float dt, Vector3? goal = null)
+        internal bool TryMove(Vector3 velocity, float dt, Vector3? goal = null, float crowdSupport = 0f)
         {
             var map = BlockArena();
             if (map != arena || map && map.Seed != arenaSeed)
@@ -209,7 +213,7 @@ namespace MiningSimulator.Ores
                 return false;
             }
 
-            bool grounded = Supported(foot.y, floor.y, normal);
+            bool grounded = Supported(foot.y - CrowdClimbHeight, floor.y, normal);
             if (traversal == Traversal.Climbing)
             {
                 drive = impact = float2.zero;
@@ -238,7 +242,7 @@ namespace MiningSimulator.Ores
             if (grounded && speed > .01f)
             {
                 Vector3 direction = velocity / speed;
-                if (cliffRetry <= 0f && TryGrip(foot, floor.y, direction, shape, speed))
+                if (cliffRetry <= 0f && CrowdClimbHeight < .05f && TryGrip(foot, floor.y, direction, shape, speed))
                 {
                     climbGoal = goal ?? (foot + direction * 2f);
                     initialLanding = landing;
@@ -258,6 +262,7 @@ namespace MiningSimulator.Ores
                 else if (floor.y - next.y > MonsterTerrainRules.DropThreshold)
                 {
                     traversal = Traversal.Falling;
+                    CrowdClimbHeight = 0f;
                     fallVelocity = velocity.normalized * Mathf.Clamp(speed, MonsterTerrainRules.MinimumDropSpeed,
                         MonsterTerrainRules.MaximumDropSpeed);
                     verticalSpeed = 0f;
@@ -267,11 +272,19 @@ namespace MiningSimulator.Ores
                 }
             }
 
-            SetAirborne(!grounded);
+            float oldLift = CrowdClimbHeight;
+            if (!grounded || IsKnockedBack) crowdSupport = 0f;
+            float lift = Mathf.MoveTowards(oldLift, crowdSupport, dt * (crowdSupport > oldLift ? 3.6f : 2.8f));
+            bool stacking = grounded && (oldLift > 0f || lift > 0f);
+            SetAirborne(!grounded || stacking);
             verticalSpeed = grounded ? -2f : Mathf.Max(-30f, verticalSpeed + Physics.gravity.y * dt);
             float slopeSpeed = grounded && normal.y > MonsterTerrainRules.WallNormalY
                 ? -Vector3.Dot(velocity, normal) / normal.y : 0f;
-            motor.Move((velocity + Vector3.up * (verticalSpeed + slopeSpeed)) * dt);
+            float vertical = stacking ? lift - oldLift : verticalSpeed * dt;
+            motor.Move(velocity * dt + Vector3.up * (vertical + slopeSpeed * dt));
+            CrowdClimbHeight = stacking && lift > .005f &&
+                arena.TrySample(shape.Foot(motor.transform.position), out var support, out _)
+                ? Mathf.Clamp(shape.Foot(motor.transform.position).y - support.y, 0f, lift) : 0f;
             if (grounded) walkNormal = normal;
             Vector3 traveled = shape.Foot(motor.transform.position) - foot;
             traveled.y = 0f;

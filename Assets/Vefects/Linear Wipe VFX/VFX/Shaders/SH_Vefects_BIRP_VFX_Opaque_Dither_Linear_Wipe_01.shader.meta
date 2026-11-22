@@ -1,0 +1,20 @@
+fileFormatVersion: 2
+guid: e1ad7ca576e45234c88a05fce6eccabf
+ShaderImporter:
+  externalObjects: {}
+  defaultTextures:
+  - _LinearWipeLUTTexture: {fileID: 2800000, guid: 29b34f744a8f0a44db91610f8252eead,
+      type: 3}
+  - _MainTexture: {instanceID: 0}
+  - _Normal: {instanceID: 0}
+  nonModifiableTextures: []
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 396100
+  packageName: Linear Wipe VFX
+  packageVersion: 1.0
+  assetPath: Assets/Vefects/Linear Wipe VFX/VFX/Shaders/SH_Vefects_BIRP_VFX_Opaque_Dither_Linear_Wipe_01.shader
+  uploadId: 975026

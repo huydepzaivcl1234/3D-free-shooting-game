@@ -11,6 +11,8 @@ namespace MiningSimulator.Ores
         {
             public string prefab,id;
             public int kind,level,clip,day,appearance;
+            public StageEnemyVariant directorVariant;
+            public GhostTier ghostTier;
             public Vector3 position,scale;
             public Quaternion rotation;
             public float health,maxHealth,armor,resistance,resistanceScale=100,damage,burnDamage,clock,phase,cooldown,lifetime,crowdClimbHeight,godShrineStrength;
@@ -32,6 +34,9 @@ namespace MiningSimulator.Ores
             public QuestNpcEncounter.QuestEncounter quest;
             public int spawnPacingVersion,spawnKills;public bool initialMonsterSpawned;
             public int pendingStageSpawns;
+            public int directorStage, directorMinibossMask;
+            public float directorDifficultyBonus;
+            public bool directorRunComplete;
             public string playerId;
             public RunCheckpoint.State runtime;
             public AluneMeteorEvent.Saved alune;
@@ -62,6 +67,10 @@ namespace MiningSimulator.Ores
             var save=new SavedWorld{playerId=RunStateFields.Id(player),elapsed=spawnElapsedSeconds,credit=spawnCredit,overtimeCredit=overtimeCredit,godShrines=godShrines,hasQuest=questNpcEncounter?.State!=null,quest=questNpcEncounter?.State,spawnPacingVersion=1,spawnKills=spawnKills,initialMonsterSpawned=initialMonsterSpawned,playerPosition=player.transform.position,day=SpawnDayNumber,eventKind=(int)CurrentDailyEvent,eventAnnouncement=dailyAnnouncementPending,thiefDay=thiefDay,thieves=spawnedThieves};
             if(alune)save.alune=alune.Capture();
             save.pendingStageSpawns = pendingStageSpawns;
+            save.directorStage = CurrentStage;
+            save.directorMinibossMask = minibossMask;
+            save.directorDifficultyBonus = difficultyBonus;
+            save.directorRunComplete = StageRunComplete;
             if(additionalRoster&&skullNights.TryGetValue(additionalRoster,out var roll)){save.skullRolled=roll.IsRolledFor(save.day);save.skullPending=roll.Pending;}
             foreach(var m in alive)if(m&&m.Health&&m.Health.Health>0&&!m.IsDespawning&&liveSpecies.TryGetValue(m,out var entry))save.monsters.Add(m.CaptureWorld(entry.prefab.name));
             foreach(var god in GetComponentsInChildren<GodBossController>())if(god.Health&&god.Health.Health>0){var record=new SavedMonster{kind=2,day=god.EncounterDay,appearance=god.AppearanceNumber,godShrineStrength=god.ShrineStrength};record.CaptureHealth(god.Health);save.monsters.Add(record);}
@@ -130,6 +139,7 @@ namespace MiningSimulator.Ores
                 }
                 if(player){var rb=player.GetComponent<Rigidbody>();if(rb){rb.position=saved.playerPosition;rb.linearVelocity=Vector3.zero;}player.transform.position=saved.playerPosition;}
                 spawnElapsedSeconds=Mathf.Max(0,saved.elapsed);
+                RestoreDirector(saved);
                 if (saved.quest != null && (saved.hasQuest || saved.quest.placed))
                     questNpcEncounter?.Restore(saved.quest);
                 overtimeCredit=Mathf.Max(0,saved.overtimeCredit);
@@ -156,6 +166,7 @@ namespace MiningSimulator.Ores
                         if (candidate?.prefab && candidate.prefab.name == record.prefab) { entry = candidate; break; }
                     entry ??= monsters.Find(e => e?.prefab && e.prefab.name == record.prefab);
                     if(entry==null&&additionalRoster){foreach(var special in new[]{additionalRoster.nightThief,additionalRoster.nightSkullclaw})if(special?.prefab&&special.prefab.name==record.prefab){entry=special;break;}}
+                    entry ??= FindDirectorEntry(record.prefab);
                     if(entry==null && GetOvertimeEntry() is MonsterSpawnEntry overtime && overtime.prefab.name==record.prefab)entry=overtime;
                     if(entry==null){worldLoadFailed=true;continue;}
                     if (record.kind == 0 && terrain && (record.cliffTraversal.mode != 0 || record.crowdClimbHeight > .01f))

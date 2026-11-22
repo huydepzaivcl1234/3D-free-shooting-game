@@ -46,7 +46,7 @@ namespace MiningSimulator.Ores
                 var tr=hits[i].transform;
                 if(tr.IsChildOf(owner.transform)||tr.IsChildOf(transform))continue;
                 var health=tr.GetComponentInParent<CharacterHealth>();
-                if(health&&health.IsMonster&&(!owner.IsSupportAlly||health!=victim))continue;
+                if (health && health.IsMonster && health != victim) continue;
                 if(hits[i].distance<distance){nearest=hits[i];distance=hits[i].distance;}
             }
             if(nearest.collider){

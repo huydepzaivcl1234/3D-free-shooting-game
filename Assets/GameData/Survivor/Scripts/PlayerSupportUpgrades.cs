@@ -21,7 +21,16 @@ namespace MiningSimulator.Ores
         private readonly string descriptionKey, englishDescription;
         public readonly SupportUpgradeRarity Rarity;
         public string Name => MiningLocalization.TextKey(nameKey, englishName);
-        public string Description => MiningLocalization.TextKey(descriptionKey, englishDescription);
+        public string Description
+        {
+            get
+            {
+                string text = MiningLocalization.TextKey(descriptionKey, englishDescription);
+                if (Id != SupportUpgradeId.ReviveAlly) return text;
+                var ally = MonsterSpawnZone.ActiveAllyTuning;
+                return string.Format(text, ally.reviveChancePercent, ally.inheritedCombatPercent, ally.flatPointsPerLevel);
+            }
+        }
         public string RarityLabel => Rarity switch
         {
             SupportUpgradeRarity.Rare => MiningLocalization.TextKey("SUPPORT_RARITY_RARE", "Rare"),
@@ -63,7 +72,7 @@ namespace MiningSimulator.Ores
             new(SupportUpgradeId.Healing, "Healing", Common, "+1% healing effectiveness per level."),
             new(SupportUpgradeId.LifestealArmor, "Lifesteal Armor", Common, "Lifesteal grants armor equal to 15% of the health stolen for 5 seconds. Each additional level adds 1 armor."),
             new(SupportUpgradeId.ItemDrop, "Item Drops", Common, "Power-up drop chance increases by 1 percentage point. Each additional level adds 0.25 percentage points."),
-            new(SupportUpgradeId.ReviveAlly, "Raise Ally", Common, "Kills have a 10% chance to revive an enemy as an ally with 10% of its original stats. Each additional level adds 5 to those stats."),
+            new(SupportUpgradeId.ReviveAlly, "Raise Ally", Common, "Kills have a {0:0.##}% chance to raise an ally with its original attack and movement speed. It retains {1:0.##}% of its HP, damage, armor and magic resistance, plus {2:0.##} flat points to each stat per level."),
             new(SupportUpgradeId.Armor, "Armor", Common, "+1 physical armor per level."),
             new(SupportUpgradeId.MagicArmor, "Magic Armor", Common, "+1 magic armor per level."),
             new(SupportUpgradeId.ProjectileKnockback, "Knockback", Rare, "Projectiles gain 1% of standard knockback. Each additional level adds 0.25 percentage points."),

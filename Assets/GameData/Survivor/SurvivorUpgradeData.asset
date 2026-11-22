@@ -25,13 +25,13 @@ MonoBehaviour:
     description: Increase attack damage
     amount: 1
     unit: ' damage'
-    icon: {fileID: 21300000, guid: 06f4a0d2b5594f1892a1afb71aba5062, type: 3}
+    icon: {fileID: 21300000, guid: 1baa55a59e5f4d9e8aebd406da599797, type: 3}
   - id: 1
     title: Attack Speed
     description: Increase attacks per second
     amount: 5
     unit: '%'
-    icon: {fileID: 21300000, guid: a5f5fcd96d8b4862895011c8277e0065, type: 3}
+    icon: {fileID: 21300000, guid: a07295bdc742435da4774b6704fdf846, type: 3}
   - id: 2
     title: Quick Reload
     description: Reduce automatic reload time
@@ -91,7 +91,7 @@ MonoBehaviour:
     description: Increase maximum health
     amount: 5
     unit: '%'
-    icon: {fileID: 21300000, guid: 15593fcaa5d4412182a183e226758152, type: 3}
+    icon: {fileID: 21300000, guid: 23e7a42f67b04a39a27fb3d89f1afaf1, type: 3}
   - id: 12
     title: Chain Shot
     description: 'On hit, bounce once to another nearby enemy. Physical damage: 20%
@@ -132,7 +132,7 @@ MonoBehaviour:
       upgrade)) + 2% enemy maximum health as magic damage.'
     amount: 1
     unit: '%'
-    icon: {fileID: 21300000, guid: bea5366b6b084684a121f7c20699f11f, type: 3}
+    icon: {fileID: 21300000, guid: 97395e36892e40629cec89e3f46cb318, type: 3}
   - id: 18
     title: Projectile Size
     description: Increase projectile size and impact area
@@ -293,7 +293,7 @@ MonoBehaviour:
       enemy
     amount: 1
     unit: 
-    icon: {fileID: 0}
+    icon: {fileID: 21300000, guid: 9f6220470379419f89b456ec9ae9839b, type: 3}
   - id: 41
     title: Card Magnet
     description: Automatically pull dropped cards toward you.
@@ -314,7 +314,7 @@ MonoBehaviour:
     description: Lob a giant bomb after dealing damage 100 times.
     amount: 1
     unit: ''
-    icon: {fileID: 21300000, guid: 561372c982d7a5a48adbc6a39f7aaaa0, type: 3}
+    icon: {fileID: 21300000, guid: 412f697553ba421f90d365b0ccc54aab, type: 3}
   basicRarityBonusPercent:
   - 0
   - 3

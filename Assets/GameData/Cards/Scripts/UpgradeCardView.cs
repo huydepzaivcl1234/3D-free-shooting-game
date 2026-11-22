@@ -6,5 +6,6 @@ namespace MiningSimulator.Ores
     {
         [Tooltip("Connect the parts of this card prefab. The panel reads these references, not child names.")]
         public UpgradePanelView.OfferSlot bindings = new();
+        internal RustUpgradeLayout.CardStyle RustStyle { get; set; }
     }
 }

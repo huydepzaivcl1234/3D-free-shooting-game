@@ -16,7 +16,9 @@ namespace MiningSimulator.Ores
         private bool movedOnTerrain;
         private Collider playerBody;
         private bool landingIgnoresPlayer, originalPlayerIgnore;
-        private CharacterHealth health, player;
+        private CharacterHealth health, player, originalPlayer, priorityAlly;
+        private int knownAllyCount;
+        private float nextAllyScan;
         private PlayerController1 playerMotor;
         private MonsterSpawnZone zone;
         private float elapsed, duration, nextJump, nextRoar, nextRoarCheck, nextPath, gravity;
@@ -70,16 +72,15 @@ namespace MiningSimulator.Ores
         {
             RestorePlayerCollision();
             terrainMotor.Reset();
-            zone = owner; player = target; EncounterDay = day;
+            zone = owner; player = originalPlayer = target; EncounterDay = day;
             playerBody = player ? player.GetComponent<Collider>() : null;
             playerMotor = player ? player.GetComponent<PlayerController1>() : null;
             AppearanceNumber=Mathf.Max(1,appearance);
             ShrineStrength = shrineStrength;
             float healthMultiplier = ShrineStrength > 0 ? ShrineStrength : data.HealthMultiplier(AppearanceNumber);
-            float defenseMultiplier = ShrineStrength > 0 ? ShrineStrength : 1;
             health.ConfigureSpawnHealth(data.health * healthMultiplier);
             health.ConfigureRegeneration(0, 5);
-            health.ConfigureDefenses(data.armor * defenseMultiplier, data.magicResistance * defenseMultiplier);
+            health.ConfigureDefenses(0f, 0f);
             float oldHeight = motor.height;
             if (animator && oldHeight > 0)
             {
@@ -105,6 +106,7 @@ namespace MiningSimulator.Ores
             // put the boss back onto their head. Wait until both bodies separate.
             if (landingIgnoresPlayer && CurrentAction != Action.Jump &&
                 (!playerBody || !motor.bounds.Intersects(playerBody.bounds))) RestorePlayerCollision();
+            if (CurrentAction is Action.Chase or Action.Punch or Action.Swipe) SelectCombatTarget();
             TickWave();
             if (CurrentAction == Action.Dead) return;
             if (!player || player.Health <= 0) { SetAnimation("Idle", 1); return; }
@@ -176,6 +178,31 @@ namespace MiningSimulator.Ores
             if (slopeLean == null && terrainMotor.VisualGroundNormal.y >= .9999f) return;
             slopeLean ??= new SlopeVisualLean(transform);
             slopeLean.Update(terrainMotor.VisualGroundNormal);
+        }
+
+        private void SelectCombatTarget()
+        {
+            var tuning = zone ? zone.AllyTuning : MonsterSpawnZone.DefaultAllySettings;
+            int count = CharacterHealth.ActiveSupportAllies.Count;
+            if (count != knownAllyCount || (priorityAlly && !priorityAlly.IsTargetable) || Time.time >= nextAllyScan)
+            {
+                knownAllyCount = count;
+                nextAllyScan = Time.time + Mathf.Max(.05f, tuning.targetRefreshSeconds);
+                priorityAlly = count > 0 ? MushroomMonster.NearestSupportAlly(transform.position,
+                    gameObject.scene, tuning.enemyAggroRange) : null;
+            }
+            var next = MushroomMonster.IsAllyCloser(transform.position, gameObject.scene, priorityAlly, originalPlayer,
+                tuning.enemyAggroRange) ? priorityAlly : originalPlayer;
+            if (next == player) return;
+            RestorePlayerCollision();
+            player = next;
+            playerBody = player ? player.GetComponent<Collider>() : null;
+            playerMotor = player ? player.GetComponent<PlayerController1>() : null;
+            path.Clear();
+            pathIndex = 0;
+            nextPath = 0f;
+            if (pathPending && WorldNavigationGrid.Instance) WorldNavigationGrid.Instance.Cancel(this);
+            pathPending = false;
         }
 
         private void Chase()

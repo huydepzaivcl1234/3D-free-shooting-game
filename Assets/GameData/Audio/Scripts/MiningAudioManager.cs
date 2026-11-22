@@ -188,8 +188,9 @@ namespace MiningSimulator.Ores
         private void Update()
         {
             SynchronizeMainMenuMusic();
+            TickOvertimeIntro();
 
-            if (audioData == null || dayNightSystem == null || ambienceSource == null ||
+            if (OvertimeIntroActive || audioData == null || dayNightSystem == null || ambienceSource == null ||
                 mainMenuMusicActive || shopThemeActive || runeAmbienceActive ||
                 worldAmbienceTransition != null ||
                 ambienceFadedForPeriodChange ||
@@ -215,6 +216,7 @@ namespace MiningSimulator.Ores
             externalSfxSources.Clear();
             StopWorldAmbienceSwitch();
             StopAmbiencePlaylist();
+            StopOvertimeIntro();
 
             if (upgradeSystem != null)
             {
@@ -266,6 +268,7 @@ namespace MiningSimulator.Ores
             {
                 ambienceCueSource.mute = muted;
             }
+            if (overtimeSource) overtimeSource.mute = muted;
 
             if (!muted)
             {

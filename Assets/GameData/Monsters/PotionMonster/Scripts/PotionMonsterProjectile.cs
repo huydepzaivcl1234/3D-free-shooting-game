@@ -20,7 +20,7 @@ namespace MiningSimulator.Ores
             transform.position=Vector3.Lerp(start,end,t)+Vector3.up*(4*data.arcHeight*t*(1-t));transform.Rotate(Vector3.right,360*seconds,Space.Self);
             if(t<1)return false;resolved=true;
             if(kind==0)victim.Heal(data.healingFlat+victim.MaxHealth*data.healingMaxHealthPercent*.01f);
-            else if(owner && owner.IsSupportAlly)owner.ApplyProjectileHit(victim);
+            else if (owner && (owner.IsSupportAlly || victim.IsMonster)) owner.ApplyProjectileHit(victim);
             else if(!victim.IsMonster){var effect=victim.GetComponent<PotionPlayerEffect>();if(!effect)effect=victim.gameObject.AddComponent<PotionPlayerEffect>();if(kind==1)effect.ApplyRed(data,owner?owner.gameObject:null);else effect.ApplyYellow(data,owner?owner.Level:1,owner?owner.gameObject:null,yellowDamage);}
             return true;
         }

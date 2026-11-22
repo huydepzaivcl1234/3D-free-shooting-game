@@ -22,8 +22,8 @@ namespace GameData.Player.Script
         private static readonly Color32 GrantColor = new(46, 91, 73, 255);
         private static readonly Color32 MaxColor = new(116, 73, 48, 255);
         private static readonly Color32 TextColor = new(247, 241, 226, 255);
-        private const float PanelWidth = 540f;
-        private const float PanelHeight = 600f;
+        private const float PanelWidth = 640f;
+        private const float PanelHeight = 640f;
 
         private sealed class Entry
         {
@@ -40,7 +40,6 @@ namespace GameData.Player.Script
         private readonly List<Entry> entries = new();
         private PlayerStats stats;
         private PlayerSupportUpgrades support;
-        private MiningCardSystem cards;
         private SurvivorUpgradeData upgradeData;
         private UiPanelCoordinator coordinator;
         private GameMainMenu mainMenu;
@@ -70,7 +69,7 @@ namespace GameData.Player.Script
         {
             stats = target;
             support = target.Support;
-            cards = FindAnyObjectByType<MiningCardSystem>();
+            var cards = FindAnyObjectByType<MiningCardSystem>(FindObjectsInactive.Include);
             upgradeData = cards ? cards.RunUpgradeData : null;
             coordinator = FindFirstObjectByType<UiPanelCoordinator>(FindObjectsInactive.Include);
             mainMenu = FindFirstObjectByType<GameMainMenu>(FindObjectsInactive.Include);
@@ -85,24 +84,26 @@ namespace GameData.Player.Script
             panelGroup.ignoreParentGroups = true;
             AddImage(panel, PanelColor, true);
             MakeText(MakeRect(panel, "Title", Vector2.up, Vector2.up, Vector2.up,
-                new Vector2(14f, -12f), new Vector2(300f, 34f)), "UPGRADE DEBUG  |  F8", 20f,
+                new Vector2(18f, -12f), new Vector2(440f, 34f)), "Upgrade Debug", 26f,
+                TextAlignmentOptions.MidlineLeft).fontStyle = FontStyles.Bold;
+            MakeText(MakeRect(panel, "Shortcut", Vector2.up, Vector2.up, Vector2.up,
+                new Vector2(19f, -46f), new Vector2(480f, 24f)), "F8 or Esc to close  ·  Scroll for more upgrades", 15f,
                 TextAlignmentOptions.MidlineLeft);
             MakeButton(MakeRect(panel, "Close", Vector2.one, Vector2.one, Vector2.one,
-                new Vector2(-12f, -10f), new Vector2(36f, 34f)), "X", 15f, MaxColor, ClosePanel);
+                new Vector2(-12f, -10f), new Vector2(72f, 38f)), "Close", 16f, MaxColor, ClosePanel);
 
             var scrollRoot = MakeRect(panel, "Upgrade Scroll View", Vector2.up, Vector2.up, Vector2.up,
-                new Vector2(12f, -58f), new Vector2(PanelWidth - 24f, 492f));
+                new Vector2(12f, -80f), new Vector2(PanelWidth - 24f, PanelHeight - 124f));
             scroll = scrollRoot.gameObject.AddComponent<ScrollRect>();
             scroll.horizontal = false;
             scroll.vertical = true;
             scroll.movementType = ScrollRect.MovementType.Clamped;
-            scroll.scrollSensitivity = 36f;
+            scroll.scrollSensitivity = 48f;
 
             var viewport = MakeRect(scrollRoot, "Viewport", Vector2.zero, Vector2.one, Center,
                 Vector2.zero, Vector2.zero);
             AddImage(viewport, new Color32(22, 20, 28, 255), true);
-            var mask = viewport.gameObject.AddComponent<Mask>();
-            mask.showMaskGraphic = false;
+            viewport.gameObject.AddComponent<RectMask2D>();
             scroll.viewport = viewport;
 
             content = MakeRect(viewport, "Upgrade List", new Vector2(0f, 1f), Vector2.one,
@@ -119,8 +120,8 @@ namespace GameData.Player.Script
             scroll.content = content;
 
             status = MakeText(MakeRect(panel, "Status", Vector2.zero, Vector2.zero, Vector2.zero,
-                new Vector2(14f, 9f), new Vector2(PanelWidth - 28f, 26f)),
-                "Select an upgrade, then grant +1 or set it to MAX (saved).", 13f,
+                new Vector2(16f, 8f), new Vector2(PanelWidth - 32f, 28f)),
+                "+1 adds a level. Max sets the level cap. Changes are saved.", 15f,
                 TextAlignmentOptions.MidlineLeft);
             status.color = new Color32(218, 204, 185, 255);
 
@@ -152,11 +153,10 @@ namespace GameData.Player.Script
 
         private void AddSection(string title)
         {
-            var rect = MakeRect(content, title, Vector2.up, Vector2.one, TopCenter, Vector2.zero, new Vector2(0f, 26f));
-            rect.gameObject.AddComponent<LayoutElement>().preferredHeight = 26f;
+            var rect = MakeRect(content, title, Vector2.up, Vector2.one, TopCenter, Vector2.zero, new Vector2(0f, 32f));
             AddImage(rect, HeadingColor);
             var label = MakeText(MakeRect(rect, "Label", Vector2.zero, Vector2.one, Center,
-                new Vector2(8f, 0f), new Vector2(-16f, 0f)), title, 13f, TextAlignmentOptions.MidlineLeft);
+                Vector2.zero, new Vector2(-20f, 0f)), title, 16f, TextAlignmentOptions.MidlineLeft);
             label.fontStyle = FontStyles.Bold;
         }
 
@@ -164,24 +164,24 @@ namespace GameData.Player.Script
             SupportUpgradeId supportId, float amountPerLevel)
         {
             var rect = MakeRect(content, name, Vector2.up, Vector2.one, TopCenter, Vector2.zero,
-                new Vector2(0f, 38f));
-            rect.gameObject.AddComponent<LayoutElement>().preferredHeight = 38f;
+                new Vector2(0f, 44f));
             AddImage(rect, RowColor);
             var row = rect.gameObject.AddComponent<HorizontalLayoutGroup>();
-            row.padding = new RectOffset(7, 7, 3, 3);
-            row.spacing = 5f;
+            row.padding = new RectOffset(10, 7, 4, 4);
+            row.spacing = 8f;
             row.childAlignment = TextAnchor.MiddleLeft;
-            row.childControlWidth = false;
-            row.childControlHeight = true;
+            row.childControlWidth = true;
+            row.childControlHeight = false;
             row.childForceExpandWidth = false;
             row.childForceExpandHeight = false;
 
             var title = MakeText(MakeRect(rect, "Upgrade Name", Center, Center, Center, Vector2.zero,
-                new Vector2(100f, 30f)), name, 14f, TextAlignmentOptions.MidlineLeft);
+                new Vector2(100f, 36f)), name, 18f, TextAlignmentOptions.MidlineLeft);
+            title.overflowMode = TextOverflowModes.Ellipsis;
             title.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
             var level = MakeText(MakeRect(rect, "Current Level", Center, Center, Center, Vector2.zero,
-                new Vector2(42f, 30f)), "Lv 0", 12f, TextAlignmentOptions.Center);
-            level.gameObject.AddComponent<LayoutElement>().preferredWidth = 42f;
+                new Vector2(74f, 36f)), "Lv 0", 16f, TextAlignmentOptions.Center);
+            level.gameObject.AddComponent<LayoutElement>().preferredWidth = 74f;
             var entry = new Entry
             {
                 Name = name,
@@ -192,30 +192,23 @@ namespace GameData.Player.Script
                 Level = level
             };
             entry.Grant = MakeButton(MakeRect(rect, "Grant One", Center, Center, Center, Vector2.zero,
-                new Vector2(46f, 30f)), "+1", 13f, GrantColor, () => GrantOne(entry));
+                new Vector2(64f, 36f)), "+1", 16f, GrantColor, () => GrantOne(entry));
+            entry.Grant.gameObject.AddComponent<LayoutElement>().preferredWidth = 64f;
             entry.Max = MakeButton(MakeRect(rect, "Max Upgrade", Center, Center, Center, Vector2.zero,
-                new Vector2(52f, 30f)), "MAX", 12f, MaxColor, () => MaxUpgrade(entry));
+                new Vector2(76f, 36f)), "MAX", 15f, MaxColor, () => MaxUpgrade(entry));
+            entry.Max.gameObject.AddComponent<LayoutElement>().preferredWidth = 76f;
             entries.Add(entry);
         }
 
         private void Update()
         {
-#if !UNITY_EDITOR
             var keyboard = Keyboard.current;
-            if (panelOpen)
-            {
-                if (keyboard != null && (keyboard.escapeKey.wasPressedThisFrame || keyboard.f8Key.wasPressedThisFrame))
-                    ClosePanel();
-                return;
-            }
-            if (keyboard?.f8Key.wasPressedThisFrame == true &&
-                (!coordinator || !coordinator.BlocksGameplay) && (!mainMenu || !mainMenu.IsOpen))
-                OpenPanel();
-#endif
+            if (keyboard == null) return;
+            if (keyboard.f8Key.wasPressedThisFrame) TogglePanel();
+            else if (panelOpen && keyboard.escapeKey.wasPressedThisFrame) ClosePanel();
         }
 
-#if UNITY_EDITOR
-        public bool ToggleFromEditor()
+        public bool TogglePanel()
         {
             if (!isActiveAndEnabled || !panel) return false;
             if (panelOpen)
@@ -227,7 +220,6 @@ namespace GameData.Player.Script
             OpenPanel();
             return panelOpen;
         }
-#endif
 
         private void OpenPanel()
         {

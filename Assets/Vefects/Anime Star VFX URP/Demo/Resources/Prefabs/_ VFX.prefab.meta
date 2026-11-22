@@ -1,5 +1,5 @@
 fileFormatVersion: 2
-guid: 50ed4ca17fec62040b026499ee908178
+guid: 0988a67965bda994bae0bc584b717822
 PrefabImporter:
   externalObjects: {}
   userData: 
@@ -7,8 +7,8 @@ PrefabImporter:
   assetBundleVariant: 
 AssetOrigin:
   serializedVersion: 1
-  productId: 404472
-  packageName: Anime Star VFX - URP
-  packageVersion: 1.0.1
+  productId: 396100
+  packageName: Linear Wipe VFX
+  packageVersion: 1.0
   assetPath: Assets/Vefects/Anime Star VFX URP/Demo/Resources/Prefabs/_ VFX.prefab
-  uploadId: 988830
+  uploadId: 975026

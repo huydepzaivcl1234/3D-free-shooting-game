@@ -126,7 +126,9 @@ namespace MiningSimulator.Ores
         private void SetHidden(bool value, bool cullAnimation)
         {
             if (!cached) return;
-            SetSimulationPaused(value && (!GameplayPerformanceData.Current || GameplayPerformanceData.Current.freezeOffscreenSimulation));
+            bool persistentPursuit = TryGetComponent<MushroomMonster>(out var monster) && monster.FollowsStageDirector;
+            SetSimulationPaused(value && !persistentPursuit &&
+                (!GameplayPerformanceData.Current || GameplayPerformanceData.Current.freezeOffscreenSimulation));
             bool nextAnimationCulled = value && cullAnimation;
             if (nextAnimationCulled != animationCulled)
             {

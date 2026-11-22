@@ -1,5 +1,5 @@
 fileFormatVersion: 2
-guid: 9ea3e283df890454f873017e47e1c722
+guid: b925c2829234c57459b0794b547ba6c9
 PrefabImporter:
   externalObjects: {}
   userData: 
@@ -7,8 +7,8 @@ PrefabImporter:
   assetBundleVariant: 
 AssetOrigin:
   serializedVersion: 1
-  productId: 404472
-  packageName: Anime Star VFX - URP
-  packageVersion: 1.0.1
+  productId: 396100
+  packageName: Linear Wipe VFX
+  packageVersion: 1.0
   assetPath: Assets/Vefects/Anime Star VFX URP/Demo/Resources/Meshes/SM_Vefects_Vexa_Unity_01.prefab
-  uploadId: 988830
+  uploadId: 975026

@@ -75,6 +75,8 @@ namespace MiningSimulator.Ores
             {
                 Transform obstacle = hits[i].transform;
                 if (obstacle.IsChildOf(owner.transform) || obstacle.IsChildOf(transform)) continue;
+                if (victimHealth && victimHealth.IsMonster && !obstacle.IsChildOf(victim) &&
+                    obstacle.GetComponentInParent<CharacterHealth>()) continue;
                 if (hits[i].distance < nearestDistance)
                 { nearest = hits[i]; nearestDistance = hits[i].distance; }
             }

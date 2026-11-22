@@ -176,7 +176,7 @@ namespace GameData.Player.Script
             heading.color = tint;
             for (int i = 0; i < rays.Length; i++)
             {
-                tint.a = i % 2 == 0 ? 0.32f : 0.15f;
+                tint.a = i % 2 == 0 ? 0.18f : 0.08f;
                 rays[i].color = tint;
             }
 
@@ -282,7 +282,10 @@ namespace GameData.Player.Script
             var rewardRect = MakeRect(art.transform, "Reward Reveal", Vector2.zero, Vector2.zero);
             reveal = rewardRect.gameObject.AddComponent<CanvasGroup>();
             rewardName = MakeLabel(rewardRect, "Reward Name", new Vector2(0, 170), new Vector2(526, 44), 27);
-            description = MakeLabel(rewardRect, "Reward Description", new Vector2(0, 125), new Vector2(494, 63), 18);
+            description = MakeLabel(rewardRect, "Reward Description", new Vector2(0, 117), new Vector2(494, 78), 18);
+            description.textWrappingMode = TextWrappingModes.Normal;
+            description.overflowMode = TextOverflowModes.Truncate;
+            description.fontStyle = FontStyles.Normal;
             icon = MakeImage(rewardRect, "Reward Icon", new Vector2(0, -13), new Vector2(153, 124), Color.white);
             icon.preserveAspect = true;
             price = MakeLabel(art.transform, "Price or Status", new Vector2(0, -221), new Vector2(520, 40), 21);

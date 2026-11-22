@@ -24,7 +24,7 @@ namespace MiningSimulator.Ores
         private TMP_FontAsset font;
         private RectTransform hud, footBar;
         private RectTransform xp, hp, energy, shieldFill, footFill;
-        private TMP_Text elapsed, gems, gold, kills, level, healthLabel, fps, exitState, lanterns, shrines, chests, chestPrice;
+        private TMP_Text elapsed, gems, gold, kills, level, healthLabel, fps, exitState, lanterns, shrines, chests;
         private UnityEngine.UI.Image exitBackground;
         private SurvivorUpgradeData abilityData;
         private SupportUpgradePillar[] pillars = System.Array.Empty<SupportUpgradePillar>();
@@ -68,8 +68,6 @@ namespace MiningSimulator.Ores
             gems.color = Silver;
             gold.color = new Color(1f,.85f,.38f);
             level = Label(hud, "Level", TopRight, TopRight, -18, -28, 180, 42, 37, TextAlignmentOptions.MidlineRight);
-            chestPrice = Label(hud, "Next chest price", TopRight, TopRight, -204, -31, 165, 37, 23, TextAlignmentOptions.MidlineRight);
-            chestPrice.color = gold.color;
 
             var healthTrack = Rect(hud, "Player HP", TopLeft, TopLeft, new Vector2(18,-79), new Vector2(252,30));
             Plate(healthTrack, Dark);
@@ -223,12 +221,6 @@ namespace MiningSimulator.Ores
             int collected = loot ? loot.CollectedBoxCount : 0;
             int total = loot ? loot.TotalBoxCount : 0;
             chests.SetText(MiningLocalization.Text("Chests", "Rương") + "   {0:0} / {1:0}", collected, total);
-            chestPrice.gameObject.SetActive(collected < total);
-            if (collected < total)
-            {
-                string price = MiningLocalization.Text("CHEST", "RƯƠNG") + " " + loot.PriceLabel;
-                if (chestPrice.text != price) chestPrice.text = price;
-            }
         }
 
         private TMP_Text ProgressRow(RectTransform progress, float y)

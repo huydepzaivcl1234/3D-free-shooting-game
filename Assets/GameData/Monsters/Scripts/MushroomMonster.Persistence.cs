@@ -5,15 +5,18 @@ namespace MiningSimulator.Ores
     {
         public MonsterSpawnZone.SavedMonster CaptureWorld(string prefab)
         {
-            var s=new MonsterSpawnZone.SavedMonster{kind=1,prefab=prefab,level=Level,boss=IsBoss,summon=IsGodSummon,damage=scaledDamage,burnDamage=scaledBurnDamage,hasLifetime=encounterVisuals!=null,lifetime=CombatTimeRemaining};s.CaptureHealth(health);return s;
+            var s=new MonsterSpawnZone.SavedMonster{kind=1,prefab=prefab,level=Level,boss=IsBoss,summon=IsGodSummon,damage=scaledDamage,burnDamage=scaledBurnDamage,directorVariant=DirectorVariant,ghostTier=ghostTier,cooldown=IsOvertimeGhost?Mathf.Max(0f,nextAttack-Time.time):0f,hasLifetime=encounterVisuals!=null,lifetime=CombatTimeRemaining};s.CaptureHealth(health);return s;
         }
         public void RestoreWorld(MonsterSpawnZone.SavedMonster s)
         {
             Level=Mathf.Max(1,s.level);scaledDamage=s.damage;scaledBurnDamage=s.burnDamage;s.RestoreHealth(health);
-            if (s.kind == 0) nextAttack = Time.time + Mathf.Max(0f, s.cooldown);
-            if (s.kind == 0 || s.hasLifetime) encounterVisuals?.RestoreExpiry(s.lifetime);
+            if (IsOvertimeGhost) SetGhostTier(s.ghostTier);
+            if (s.kind == 0 || IsOvertimeGhost) nextAttack = Time.time + Mathf.Max(0f, s.cooldown);
+            if (FollowsStageDirector) encounterVisuals?.RestoreExpiry(0);
+            else if (s.kind == 0 || s.hasLifetime) encounterVisuals?.RestoreExpiry(s.lifetime);
+            SetDirectorVariant(s.directorVariant);
             // Old normal Bread enemies can have damage rolled with the old shared stat multiplier.
-            if (!s.boss && !s.summon && SpeciesData is BreadMonsterData bread)
+            if (!FollowsStageDirector && !s.boss && !s.summon && SpeciesData is BreadMonsterData bread)
             {
                 float maxRoll = Mathf.Max(.01f, bread.randomStatMultiplier.x, bread.randomStatMultiplier.y);
                 scaledDamage = Mathf.Min(scaledDamage, bread.AttackDamageAtLevel(Level) * maxRoll);

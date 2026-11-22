@@ -30,8 +30,8 @@ namespace MiningSimulator.Ores
     {
         private MushroomMonster owner;
         private Animator animator;
-        private CharacterHealth player, chargeVictim;
-        private Collider playerCollider;
+        private CharacterHealth waveVictim, chargeVictim;
+        private Collider waveVictimCollider;
         private readonly HashSet<UnityEngine.Object> struck = new();
         private LineRenderer ring;
         private Material ringMaterial;
@@ -45,12 +45,14 @@ namespace MiningSimulator.Ores
         private void Awake() { owner = GetComponent<MushroomMonster>(); animator = GetComponentInChildren<Animator>(); }
         public void Initialize(CharacterHealth target)
         {
-            Cancel(); player = target; playerCollider = target != null ? target.GetComponent<Collider>() : null;
+            Cancel();
         }
 
-        public void BeginSlam(Vector3 point, float baseRadius, float hitScale, float hitHeight)
+        public void BeginSlam(Vector3 point, float baseRadius, float hitScale, float hitHeight, CharacterHealth victim)
         {
             if (Settings == null || !Settings.enabled) return;
+            waveVictim = victim;
+            waveVictimCollider = victim ? victim.GetComponent<Collider>() : null;
             struck.Clear(); center = point; scale = hitScale; height = hitHeight;
             visualCenter = center;
             if (WorldNavigationGrid.Instance != null && WorldNavigationGrid.Instance.TryGetGroundPoint(center, out Vector3 ground))
@@ -103,9 +105,10 @@ namespace MiningSimulator.Ores
                 elapsed += Mathf.Max(0, delta);
                 float progress = Mathf.Clamp01(elapsed / Mathf.Max(.05f, Settings.waveSeconds));
                 float current = radius * progress;
-                if (player != null && player.Health > 0 && !struck.Contains(player) && CrossesFront(player.transform, playerCollider, current))
+                if (waveVictim && waveVictim.IsTargetable && !struck.Contains(waveVictim) &&
+                    CrossesFront(waveVictim.transform, waveVictimCollider, current))
                 {
-                    struck.Add(player); owner.ApplyProjectileHit(player);
+                    struck.Add(waveVictim); owner.ApplyProjectileHit(waveVictim);
                 }
 
                 if (grassImpact != null)
@@ -174,6 +177,8 @@ namespace MiningSimulator.Ores
         public void Cancel()
         {
             wave = chargePending = IsCharging = false; playerHits = 0; chargeVictim = null; struck.Clear();
+            waveVictim = null;
+            waveVictimCollider = null;
             ResetBossSkills();
             HideWave();
         }

@@ -12,12 +12,20 @@ namespace MiningSimulator.Ores
         private Camera stageCamera;
         private GameMainMenu stageMenu;
         private GameData.Player.Script.SurvivorDailyLoot stageLoot;
+        private WorldProximityLabel chestWorldLabel, shrineWorldLabel;
         private MonsterSpawnEntry overtimeEntry;
         private int lastDisplayedSeconds = -1;
         private bool displayedOvertime;
         private MiningLanguage displayedLanguage;
 
-        public bool IsOvertime => spawnSettings && spawnElapsedSeconds >= spawnSettings.stageSeconds;
+        internal float OvertimeMinutes => Mathf.Max(0f, (spawnElapsedSeconds - CurrentStageDuration) / 60f);
+        internal static readonly MonsterSpawnSettings.GhostSettings DefaultGhostSettings = new();
+        internal MonsterSpawnSettings.GhostSettings GhostTuning => (spawnSettings ? spawnSettings.ghost : null) ?? DefaultGhostSettings;
+        internal float GhostControlCap => GhostTuning.controlCapSeconds *
+            (1f - Mathf.Clamp01((OvertimeMinutes - GhostTuning.surgeAtMinute) / Mathf.Max(.01f, GhostTuning.controlDecayMinutes)));
+        internal float GhostSurgeSpeed => OvertimeMinutes >= GhostTuning.surgeAtMinute ? GhostTuning.surgeSpeedMultiplier : 1f;
+
+        public bool IsOvertime => spawnSettings && !StageRunComplete && spawnElapsedSeconds >= CurrentStageDuration;
 
         private void InitializeStage()
         {
@@ -35,7 +43,9 @@ namespace MiningSimulator.Ores
             scaler.referenceResolution = new Vector2(1920,1080);
             scaler.matchWidthOrHeight = .5f;
             stageTimer = CreateStageLabel("Stage timer", -24, 300, 59, 38, false);
-            shrinePrompt = CreateStageLabel("God Boss prompt", -92, 520, 38, 21);
+            shrinePrompt = CreateStageLabel("Stage portal prompt", -92, 520, 38, 21);
+            chestWorldLabel = new WorldProximityLabel(transform, "Chest price (world)");
+            shrineWorldLabel = new WorldProximityLabel(transform, "Boss shrine (world)");
             hud.AddComponent<SurvivorPlayHud>().Initialize(this, player, wallet, (RectTransform)stageCanvas.transform);
             stageTimer.transform.parent.SetAsLastSibling();
             shrinePrompt.transform.parent.SetAsLastSibling();
@@ -76,11 +86,17 @@ namespace MiningSimulator.Ores
         {
             if (!stageCanvas) return;
             stageCanvas.enabled = (!stageMenu || !stageMenu.IsOpen) && (!uiCoordinator || !uiCoordinator.BlocksGameplay);
-            if (!stageCanvas.enabled) return;
+            if (!stageCanvas.enabled || RunCheckpoint.IsRestoring || restoringWorld)
+            {
+                chestWorldLabel.Hide();
+                shrineWorldLabel.Hide();
+                return;
+            }
+            TickWorldPrompts();
             bool overtime = IsOvertime;
             int seconds = overtime
-                ? Mathf.FloorToInt(spawnElapsedSeconds - spawnSettings.stageSeconds)
-                : Mathf.CeilToInt(spawnSettings.stageSeconds - spawnElapsedSeconds);
+                ? Mathf.FloorToInt(spawnElapsedSeconds - CurrentStageDuration)
+                : Mathf.Max(0, Mathf.CeilToInt(CurrentStageDuration - spawnElapsedSeconds));
             var language = MiningLocalization.CurrentLanguage;
             if (seconds != lastDisplayedSeconds || overtime != displayedOvertime || language != displayedLanguage)
             {
@@ -88,25 +104,48 @@ namespace MiningSimulator.Ores
                 displayedOvertime = overtime;
                 displayedLanguage = language;
                 string time = $"{seconds / 60:00}:{seconds % 60:00}";
-                stageTimer.text = overtime ? MiningLocalization.TextKey("SURVIVOR_OVERTIME", "OVERTIME") + "  +" + time : time;
+                string stage = MiningLocalization.Text("STAGE", "MÀN") + $" {CurrentStage}";
+                stageTimer.text = StageRunComplete
+                    ? MiningLocalization.Text("RUN COMPLETE", "HOÀN THÀNH")
+                    : stage + (overtime ? "  +" : "  ") + time;
                 stageTimer.color = overtime ? new Color(1,.56f,.42f) : Color.white;
             }
 
-            string prompt = stageLoot ? stageLoot.ChestPrompt() : null;
-            if (prompt == null && FindNearbyShrine() != null)
-            {
-                prompt = godBoss
-                    ? MiningLocalization.TextKey("SURVIVOR_GOD_ALREADY_ACTIVE", "God Boss is already active")
-                    : MiningLocalization.TextKey("SURVIVOR_SUMMON_GOD", "[E]  Summon God Boss");
-            }
+            string prompt = StagePortalPrompt();
             shrinePrompt.transform.parent.gameObject.SetActive(prompt != null);
             if (prompt != null && shrinePrompt.text != prompt) shrinePrompt.text = prompt;
+        }
+
+        private void TickWorldPrompts()
+        {
+            if (!stageCamera || !stageCamera.isActiveAndEnabled) stageCamera = Camera.main;
+            if (!stageCamera)
+            {
+                chestWorldLabel.Hide();
+                shrineWorldLabel.Hide();
+                return;
+            }
+
+            var chest = stageLoot ? stageLoot.NearbyChest() : null;
+            if (chest)
+                chestWorldLabel.Show(chest.transform, stageCamera, stageLoot.WorldPriceText(),
+                    stageLoot.CanAffordNext ? new Color32(255, 218, 125, 255) : new Color32(255, 142, 121, 255));
+            else chestWorldLabel.Hide();
+
+            var shrine = !IsOvertime && !StageRunComplete && !RuneStation.PlayerUsesRuneTime
+                ? FindNearbyShrine() : null;
+            if (shrine != null)
+                shrineWorldLabel.Show(shrine.instance.transform, stageCamera,
+                    godBoss ? MiningLocalization.Text("Boss active", "Boss đang hoạt động") :
+                        MiningLocalization.Text("Summon Boss", "Triệu hồi Boss"),
+                    new Color32(255, 226, 179, 255));
+            else shrineWorldLabel.Hide();
         }
 
         private void TickOvertime(float dt)
         {
             if (!IsOvertime || !spawnSettings.overtimeEnemy || dt <= 0) return;
-            float minutes = (spawnElapsedSeconds - spawnSettings.stageSeconds) / 60f;
+            float minutes = OvertimeMinutes;
             float interval = Mathf.Max(Mathf.Max(.1f, spawnSettings.overtimeMinimumInterval),
                 spawnSettings.overtimeInterval - minutes * spawnSettings.overtimeIntervalReductionPerMinute);
             overtimeCredit += dt;

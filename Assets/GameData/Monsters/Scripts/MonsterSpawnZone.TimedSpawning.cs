@@ -12,15 +12,16 @@ namespace MiningSimulator.Ores
 
         internal float StageHealthMultiplier => StagePhase != null
             ? Mathf.Lerp(1, Mathf.Max(1, spawnSettings.ordinaryHealthAtStageEnd),
-                spawnElapsedSeconds / Mathf.Max(1, spawnSettings.stageSeconds)) : 1;
+                spawnElapsedSeconds / CurrentStageDuration) * Difficulty : 1;
 
-        internal float StageMoveMultiplier => 1 + Mathf.Max(0, StagePhase?.movementBonusPercent ?? 0) * .01f;
+        internal float StageMoveMultiplier => (1 + Mathf.Max(0, StagePhase?.movementBonusPercent ?? 0) * .01f) *
+            (1 + (Difficulty - 1) * .15f);
         private int spawnKills;
         public float SpawnElapsedSeconds=>spawnElapsedSeconds;
         public int SpawnKills=>spawnKills;
-        public float CurrentSpawnInterval => StagePhase is { } phase ? Mathf.Max(.1f, phase.spawnInterval) : spawnSettings?spawnSettings.IntervalAfterKills(spawnKills):Mathf.Max(2f,8f-(spawnKills/10)*.5f);
+        public float CurrentSpawnInterval => StagePhase is { } phase ? Mathf.Max(.1f, phase.spawnInterval / (Mathf.Min(Difficulty, 6) * SwarmRate)) : spawnSettings?spawnSettings.IntervalAfterKills(spawnKills):Mathf.Max(2f,8f-(spawnKills/10)*.5f);
         public float CurrentSpawnsPerSecond => StagePhase is { } phase
-            ? IsOvertime ? 0 : Mathf.Max(1, phase.batchSize) / CurrentSpawnInterval
+            ? IsOvertime || StageRunComplete ? 0 : Mathf.Max(1, phase.batchSize) / CurrentSpawnInterval
             : initialMonsterSpawned && spawnKills == 0 ? 0 : 1f / CurrentSpawnInterval;
         private void TickTimedSpawns(float seconds)
         {
@@ -52,11 +53,12 @@ namespace MiningSimulator.Ores
             spawnCredit += seconds;
             if (pendingStageSpawns <= 0)
             {
-                if (initialMonsterSpawned && spawnCredit < Mathf.Max(.1f, phase.spawnInterval)) return;
+                if (initialMonsterSpawned && spawnCredit < CurrentSpawnInterval) return;
                 spawnCredit = 0;
                 pendingStageSpawns = Mathf.Max(1, phase.batchSize);
             }
-            int available = Mathf.Min(LivingMonsterLimit, Mathf.Max(1, phase.livingLimit)) - LivingCountOnField();
+            int phaseLimit = Mathf.CeilToInt(Mathf.Max(1, phase.livingLimit) * SwarmRate);
+            int available = Mathf.Min(LivingMonsterLimit, phaseLimit) - LivingCountOnField();
             pendingStageSpawns = Mathf.Min(pendingStageSpawns, Mathf.Max(0, available));
             int count = Mathf.Min(pendingStageSpawns, StageSpawnsPerFrame);
             bool invasion = spawnKills > 0 && CurrentDailyEvent == DailyEncounterEvent.BossInvasion;

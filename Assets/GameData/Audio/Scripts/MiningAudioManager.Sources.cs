@@ -36,8 +36,8 @@ namespace MiningSimulator.Ores
             if (ambienceSource != null)
             {
                 ambienceSource.playOnAwake = false;
-                ambienceSource.loop = ambiencePlaylist == null;
-                ambienceSource.volume = GetAmbienceVolume();
+                ambienceSource.loop = !OvertimeIntroActive && ambiencePlaylist == null;
+                if (!ambienceFade.isAlive) ambienceSource.volume = GetAmbienceVolume();
                 ambienceSource.spatialBlend = 0f;
                 ambienceSource.mute = musicMuted;
                 ambienceSource.outputAudioMixerGroup = audioData.MusicMixerGroup;

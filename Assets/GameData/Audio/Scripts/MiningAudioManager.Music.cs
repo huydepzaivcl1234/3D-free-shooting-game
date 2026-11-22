@@ -88,6 +88,7 @@ namespace MiningSimulator.Ores
             musicSource?.Stop();
             ambienceSource?.Stop();
             ambienceCueSource?.Stop();
+            StopOvertimeIntro();
         }
 
     }

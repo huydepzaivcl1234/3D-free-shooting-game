@@ -86,6 +86,11 @@ namespace MiningSimulator.Ores
 
         private void ApplySkullclawAreaHit()
         {
+            if (IsSupportAlly || (zone && zone.PlayerHuntMode && target != playerTarget))
+            {
+                DamageSkullclawAreaVictim(target);
+                return;
+            }
             // Players and the defended chest are distinct victims; never double-hit the current target.
             DamageSkullclawAreaVictim(playerTarget);
             var chestHealth = TreasureChest.Active != null ? TreasureChest.Active.Health : null;

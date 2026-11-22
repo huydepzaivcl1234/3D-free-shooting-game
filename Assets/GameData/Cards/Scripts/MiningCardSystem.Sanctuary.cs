@@ -42,10 +42,15 @@ namespace MiningSimulator.Ores
         IEnumerator ConfirmPick(int index)
         {
             foreach(var b in choices)if(b)b.interactable=false;
-            choices[index].GetComponent<UpgradeChoiceFx>()?.Confirm();
+            var motion=choices[index].GetComponent<UpgradeChoiceFx>();
             if(!panelAudio)panelAudio=FindAnyObjectByType<MiningAudioManager>();panelAudio?.PlayCardPickSfx(offers[index].rarity);
-            yield return new WaitForSecondsRealtime(.38f);
-            pickFeedback=null;if(choiceOpen)ChooseOffer(index);
+            if(motion&&motion.Confirm())
+            {
+                while(motion&&motion.IsConfirming)yield return null;
+            }
+            else yield return new WaitForSecondsRealtime(.38f);
+            pickFeedback=null;
+            if(choiceOpen&&!ChooseOffer(index))RefreshPresentation();
         }
         void RevealOffers()
         {
@@ -82,7 +87,7 @@ namespace MiningSimulator.Ores
             var lb=later.GetComponent<Button>();if(!lb)lb=later.gameObject.AddComponent<Button>();lb.targetGraphic=surface;lb.onClick.RemoveListener(ClosePending);lb.onClick.AddListener(ClosePending);
             L(later,"Label","LATER",20,0,125,42,15,Hex("E1D8C2"),false,true).alignment=TextAlignmentOptions.MidlineLeft;L(later,"Esc","Esc",148,0,40,42,12,Hex("9FB4BF")).alignment=TextAlignmentOptions.Midline;
             L(choicePanel,"Keyboard hint","1–3  Choose an offer",544,841,400,25,15,Hex("9FB4BF"));L(choicePanel,"Paused hint","The game is paused while you choose an upgrade.",1100,841,560,25,14,Hex("9FB4BF")).alignment=TextAlignmentOptions.TopRight;
-            var sparks=GetComponent<UpgradeSparkVfx>();if(!sparks&&data&&data.sparkleVfx)sparks=gameObject.AddComponent<UpgradeSparkVfx>();if(sparks)sparks.Refresh(choices,offers,data);
+            RefreshSparklingCards();
         }
         void BuildSanctuaryOffer(int index)
         {
@@ -96,11 +101,10 @@ namespace MiningSimulator.Ores
             var art=Artwork(offer.id);Color accent=Hex(offer.id==SurvivorUpgradeId.Burn?"F1B66B":offer.id==SurvivorUpgradeId.ChargedCube?"CCA2F6":offer.id==SurvivorUpgradeId.MaxHealth?"CAA5F1":offer.rarity==0?"B7C5CF":offer.rarity==1?"8BD4C5":offer.rarity==2?"91BFF1":offer.rarity==3?"CCA2F6":"F1C56B");
             var frame=Paint(rect,"Frame",Hex("1B2A38"),Hex("111B27"),new Color(accent.r,accent.g,accent.b,.44f),18);
             var chamber=Node(rect,"Visual chamber");Pixel(chamber,1,1,366,231);Paint(chamber,"Fill",Color.Lerp(accent,Hex("101C29"),.82f),Hex("101C29"),Color.clear,17);
-            if(art!=null){VectorArt(rect,"Art glow",art.glow,28,-25,312,312);VectorArt(rect,"Art ring",art.ring,96,37,176,176);VectorArt(rect,"Art medallion",art.medallion,91,42,186,186);VectorArt(rect,"Figma icon",art.icon,137,77,94,94);}
-            else{
-                if(sanctuarySkin){var neutral=sanctuarySkin.sword;VectorArt(rect,"Art glow",neutral.glow,28,-25,312,312);VectorArt(rect,"Art ring",neutral.ring,96,37,176,176);VectorArt(rect,"Art medallion",neutral.medallion,91,42,186,186);}
-                RenderIcon(rect,"Authored icon",def?.icon?def.icon:starIcon?starIcon:sanctuarySkin?sanctuarySkin.spark:null,137,77,94,94);
-            }
+            var backdropArt=art??(sanctuarySkin?sanctuarySkin.sword:null);
+            if(backdropArt!=null){VectorArt(rect,"Art glow",backdropArt.glow,28,-25,312,312);VectorArt(rect,"Art ring",backdropArt.ring,96,37,176,176);VectorArt(rect,"Art medallion",backdropArt.medallion,91,42,186,186);}
+            if(art!=null&&!UsesCustomCardIcon(offer.id))VectorArt(rect,"Figma icon",art.icon,137,77,94,94);
+            else RenderIcon(rect,"Authored icon",def?.icon?def.icon:starIcon?starIcon:sanctuarySkin?sanctuarySkin.spark:null,137,77,94,94);
             var pill=Node(rect,"Rarity pill");Pixel(pill,20,18,offer.shiny?175:124,30);Paint(pill,"Fill",new Color(.025f,.06f,.09f,.8f),new Color(.025f,.06f,.09f,.8f),new Color(accent.r,accent.g,accent.b,.22f),15);
             L(pill,"Label",(offer.shiny?"SPARKLING · ":"")+SurvivorUpgradeData.RarityName(offer.rarity).ToUpperInvariant(),0,0,offer.shiny?175:124,30,12,accent,false,true).alignment=TextAlignmentOptions.Center;
             L(rect,"Number",(index+1).ToString(),318,18,30,30,14,Hex("DDE4E8"),false,true).alignment=TextAlignmentOptions.Center;
@@ -121,8 +125,6 @@ namespace MiningSimulator.Ores
             y=535;Rule(rect,"Progress track",24,y,320,3,Hex("30414C"));Rule(rect,"Progress",24,y,Mathf.Max(10,320*(lv+1)/99f),3,accent);
             y=551;var action=Node(rect,"SelectAction");Pixel(action,24,y,320,45);var cta=Paint(action,"Fill",Hex("243846"),Hex("243846"),accent,9);
             var label=L(action,"Label","CHOOSE UPGRADE",0,0,320,45,16,Hex("E1D8C2"),false,true);label.alignment=TextAlignmentOptions.Center;
-            if(offer.shiny&&sanctuarySkin){VectorArt(action,"Left star",sanctuarySkin.spark,10,13,18,18);VectorArt(action,"Right star",sanctuarySkin.spark,292,13,18,18);}
-            else{Hide(action,"Left star");Hide(action,"Right star");}
             var fx=button.GetComponent<UpgradeChoiceFx>();if(!fx)fx=button.gameObject.AddComponent<UpgradeChoiceFx>();fx.Configure(frame,cta,label,accent,data?(abilityChoice?data.abilityQueueIcon:data.statQueueIcon):null);
         }
         void BuildSanctuaryInventory()
@@ -139,7 +141,7 @@ namespace MiningSimulator.Ores
             var bg=viewport.GetComponent<Image>();if(!bg)bg=viewport.gameObject.AddComponent<Image>();bg.color=Color.clear;bg.raycastTarget=true;
             var content=Node(viewport,"Content");int count=0;foreach(Transform child in content)child.gameObject.SetActive(false);
             if(player&&data&&data.survivorUpgrades)foreach(var def in data.survivorUpgrades.definitions){if(def==null||def.Retired)continue;int level=player.UpgradeLevel(def.id);if(level==0)continue;
-                var row=Node(content,def.id.ToString());Pixel(row,0,count*43,390,40);var art=Artwork(def.id);if(art!=null)VectorArt(row,"Icon",art.icon,5,6,25,25);else RenderIcon(row,"Icon",def.icon?def.icon:starIcon?starIcon:sanctuarySkin?sanctuarySkin.spark:null,5,6,25,25);
+                var row=Node(content,def.id.ToString());Pixel(row,0,count*43,390,40);var art=Artwork(def.id);if(art!=null&&!UsesCustomCardIcon(def.id))VectorArt(row,"Icon",art.icon,5,6,25,25);else RenderIcon(row,"Icon",def.icon?def.icon:starIcon?starIcon:sanctuarySkin?sanctuarySkin.spark:null,5,6,25,25);
                 L(row,"Name",data.survivorUpgrades.Title(def.id),45,7,235,30,17,Hex("C1CED3"));L(row,"Level",$"{level} / 99",285,8,100,30,14,Hex("9FB4BF")).alignment=TextAlignmentOptions.TopRight;count++;
             }
             Pixel(content,0,0,390,Mathf.Max(172,count*43));if(count==0)L(content,"Empty","Your journey begins here.",0,7,390,35,17,Hex("9FB4BF"));

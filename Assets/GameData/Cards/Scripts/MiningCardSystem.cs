@@ -88,6 +88,11 @@ namespace MiningSimulator.Ores
             if(!player)return "";var c=player.GetComponent<SurvivorAutoCombat>();if(!c)return "";
             float before=0,after=0;string unit="";float bonus=player.UpgradeBonus(offer.id),ratio=(100+bonus+offer.amount)/(100+bonus);
             switch(offer.id){
+                case SurvivorUpgradeId.Burn when rustLayout:
+                    var ignite = player.AbilityData.common.ignite;
+                    return $"{ignite.flatDamage.At(player.UpgradeLevel(offer.id) + 1):0.##} + {ignite.enemyMaxHealthPercent:0.##}% max HP / {ignite.tickInterval:0.##}s";
+                case SurvivorUpgradeId.ChargedCube when rustLayout:
+                    return $"{player.AbilityData.epic.chargedCube.chargeSeconds:0.##} s";
                 case SurvivorUpgradeId.CardMagnet:before=player.CardAttractionRadius;after=player.AbilityData.common.cardMagnet.radius.At(player.UpgradeLevel(offer.id)+1);unit=" m pickup range";break;
                 case SurvivorUpgradeId.PhysicalDamage:before=c.EffectiveDamage;after=player.CalculateSurvivorDamage(c.BaseDamage,offer.amount);unit=" damage";break;
                 case SurvivorUpgradeId.AttackSpeed:before=c.ShotsPerSecond;after=player.CalculateAttacksPerSecond(offer.amount);unit=" /s";break;
@@ -103,7 +108,8 @@ namespace MiningSimulator.Ores
                 default:return "";
             }
             if(Mathf.Approximately(before,after))return offer.id==SurvivorUpgradeId.AttackSpeed?$"{before:0.###}{unit} (speed cap reached)":$"{before:0.###} → {after:0.###}{unit} (needs base stat)";
-            return $"{before:0.###} → {after:0.###}{unit}  (+{after-before:0.###})";
+            return rustLayout ? $"{before:0.##} → {after:0.##}{(offer.id==SurvivorUpgradeId.PhysicalDamage?"":unit)}"
+                : $"{before:0.###} → {after:0.###}{unit}  (+{after-before:0.###})";
         }
         private static Color Hex(string value){ColorUtility.TryParseHtmlString("#"+value,out var color);return color;}
         private static void Hide(Transform parent,string name){var t=parent.Find(name);if(t)t.gameObject.SetActive(false);}
@@ -237,7 +243,9 @@ namespace MiningSimulator.Ores
                 bool shown=available.Count>0;choices[i].gameObject.SetActive(shown);choices[i].interactable=shown;
                 if(!shown)continue;
                 int pick=Random.Range(0,available.Count);blueOptions[i]=available[pick];available.RemoveAt(pick);
-                choices[i].GetComponentInChildren<TMP_Text>().text=BlueLabel(blueOptions[i],settings);
+                var label = rustLayout && panelView && i < panelView.slots.Length
+                    ? panelView.slots[i].name : choices[i].GetComponentInChildren<TMP_Text>();
+                if (label) label.text=BlueLabel(blueOptions[i],settings);
                 var colors=choices[i].colors;colors.normalColor=orange?new Color(.65f,.23f,.03f):new Color(.04f,.2f,.5f);colors.highlightedColor=orange?new Color(.95f,.45f,.08f):new Color(.08f,.42f,.8f);choices[i].colors=colors;
             }
             return true;

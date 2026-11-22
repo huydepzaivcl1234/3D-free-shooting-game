@@ -11,7 +11,7 @@ namespace GameData.Player.Script
         private const string SaveKey = "Survivor.AbilityLoot.v1";
         private const int MaxBoxes = 50;
         private const float Clearance = .75f;
-        private const float Spacing = 3f;
+        private const float Spacing = MapFeaturePopulator.LootSpacing;
         private const int PathChecksPerSearch = 4;
 
         [Serializable]
@@ -21,6 +21,7 @@ namespace GameData.Player.Script
             public float yaw;
             public bool shiny;
             public bool collected;
+            public bool reward;
         }
 
         [Serializable]
@@ -37,8 +38,10 @@ namespace GameData.Player.Script
         private MapFeaturePopulator features;
         private Progress progress;
         private readonly List<Vector3> route = new();
+        private readonly List<Vector3> lootPositions = new();
         private readonly List<SurvivorLootBox> live = new();
-        private int nextIndex, failedPlacements;
+        internal IReadOnlyList<SurvivorLootBox> CurrentBoxes => live;
+        private int nextIndex, failedPlacements, rewardBoxCount;
         private bool loadBlocked;
 
         public static void Attach(SurvivorDailyLoot owner)
@@ -67,11 +70,25 @@ namespace GameData.Player.Script
             if (progress == null) return;
             if (nextIndex < progress.boxes.Count)
             {
+                var record = progress.boxes[nextIndex];
+                if (!record.collected)
+                {
+                    features.CaptureLootPositions(lootPositions);
+                    int densityCount = MapFeaturePopulator.CountSpawnDensityItems(lootPositions, arena.Center);
+                    if (!record.reward && !FitsDensity(record.position, arena.Center, densityCount) &&
+                        TryPlace(arena, grid, nextIndex, densityCount, out var replacement))
+                    {
+                        record.position = replacement;
+                        Save();
+                    }
+                }
                 Spawn(nextIndex++);
             }
-            else if (progress.boxes.Count < progress.count && failedPlacements < 3)
+            else if (MapBoxCount < progress.count && failedPlacements < 3)
             {
-                if (TryPlace(arena, grid, progress.boxes.Count, out var position))
+                features.CaptureLootPositions(lootPositions);
+                int densityCount = MapFeaturePopulator.CountSpawnDensityItems(lootPositions, arena.Center);
+                if (TryPlace(arena, grid, MapBoxCount, densityCount, out var position))
                 {
                     var random = new System.Random(unchecked(arena.Seed * 397 ^ nextIndex ^ 0x2B10E));
                     progress.boxes.Add(new Record
@@ -118,7 +135,7 @@ namespace GameData.Player.Script
                 Destroy(box.gameObject);
             }
             live.Clear();
-            nextIndex = failedPlacements = 0;
+            nextIndex = failedPlacements = rewardBoxCount = 0;
             string json = GameSave.GetString(SaveKey, "");
             progress = null;
             if (!string.IsNullOrEmpty(json))
@@ -126,7 +143,7 @@ namespace GameData.Player.Script
                 try { progress = JsonUtility.FromJson<Progress>(json); }
                 catch (ArgumentException) { }
                 if (progress == null || progress.version != 1 || progress.count < 0 ||
-                    progress.count > MaxBoxes || progress.boxes == null || progress.boxes.Count > progress.count ||
+                    progress.count > MaxBoxes || progress.boxes == null ||
                     progress.boxes.Exists(box => box == null || !float.IsFinite(box.position.sqrMagnitude) ||
                         !float.IsFinite(box.yaw)))
                 {
@@ -135,7 +152,15 @@ namespace GameData.Player.Script
                     Debug.LogWarning("Saved blue Ability Loot Boxes could not be read. Original records were preserved.", this);
                     return;
                 }
-                if (progress.seed == seed) return;
+                if (progress.seed == seed)
+                {
+                    foreach (var box in progress.boxes) if (box.reward) rewardBoxCount++;
+                    if (MapBoxCount <= progress.count) return;
+                    progress = null;
+                    loadBlocked = true;
+                    Debug.LogWarning("Saved Ability Loot Box count exceeds the map layout. Original records were preserved.", this);
+                    return;
+                }
             }
 
             progress = new Progress
@@ -143,6 +168,28 @@ namespace GameData.Player.Script
                 seed = seed,
                 count = Mathf.Clamp(woodLoot.data.startingAbilityBoxCount, 0, MaxBoxes)
             };
+            Save();
+        }
+
+        private int MapBoxCount => progress.boxes.Count - rewardBoxCount;
+
+        internal void DropReward(Vector3 position)
+        {
+            if (!woodLoot || !features || !features.PopulationReady ||
+                features.Arena is not { HasLayout: true } arena || GameSave.SuppressWrites ||
+                !GameSave.Store.Writable || loadBlocked) return;
+            if (progress == null || progress.seed != arena.Seed) LoadLayout(arena.Seed);
+            if (progress == null) return;
+
+            var grid = WorldNavigationGrid.Instance;
+            if (grid && grid.TryGetGroundPoint(position, out var ground)) position = ground;
+            progress.boxes.Add(new Record
+            {
+                position = position + Vector3.up * .04f,
+                yaw = UnityEngine.Random.Range(0f, 360f),
+                reward = true
+            });
+            rewardBoxCount++;
             Save();
         }
 
@@ -162,7 +209,11 @@ namespace GameData.Player.Script
             live[index] = box;
         }
 
-        private bool TryPlace(IProceduralArena arena, WorldNavigationGrid grid, int index, out Vector3 point)
+        private bool FitsDensity(Vector3 point, Vector3 origin, int densityCount) =>
+            !MapFeaturePopulator.SpawnDensityLimitReached(point, origin, densityCount) &&
+            MapFeaturePopulator.HasLootClearance(lootPositions, point, Spacing);
+
+        private bool TryPlace(IProceduralArena arena, WorldNavigationGrid grid, int index, int densityCount, out Vector3 point)
         {
             var data = woodLoot.data;
             Vector3 origin = arena.Center;
@@ -175,12 +226,8 @@ namespace GameData.Player.Script
             {
                 if (pathChecks >= PathChecksPerSearch ||
                     (cards.Player.transform.position - p).sqrMagnitude < 9f ||
-                    grid.IsPortalSpawnExcluded(p, Clearance)) return false;
-                foreach (var record in progress.boxes)
-                    if (PlanarDistanceSquared(p, record.position) < Spacing * Spacing) return false;
-                foreach (var chest in woodLoot.CurrentBoxes)
-                    if (chest && PlanarDistanceSquared(p, chest.transform.position) < Spacing * Spacing) return false;
-                if (!grid.IsCapsulePlacementClear(p, Clearance, 1.25f)) return false;
+                    !FitsDensity(p, origin, densityCount) || grid.IsPortalSpawnExcluded(p, Clearance) ||
+                    !grid.IsCapsulePlacementClear(p, Clearance, 1.25f)) return false;
                 pathChecks++;
                 return grid.TryFindPath(origin, p, route);
             }
@@ -192,7 +239,7 @@ namespace GameData.Player.Script
 
             pathChecks = 0;
             return arena.TryGetFlatSpot(0, arena.MaxTier, Clearance, Spacing,
-                p => PlanarDistanceSquared(p, origin) >= min * min && Fits(p), out point, out _);
+                Fits, out point, out _);
         }
 
         private static float PlanarDistanceSquared(Vector3 a, Vector3 b)

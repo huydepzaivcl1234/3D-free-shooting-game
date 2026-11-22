@@ -340,8 +340,8 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
         internal CharacterHealth ResolveSupportKillPlayer(GameObject source)
         {
             if (!source) return null;
-            var controller = source.GetComponentInParent<GameData.Player.Script.PlayerController1>();
-            if (controller) return controller.GetComponent<CharacterHealth>();
+            var stats = source.GetComponentInParent<PlayerStats>();
+            if (stats && stats.TryGetComponent<CharacterHealth>(out var creditedPlayer)) return creditedPlayer;
             return MonsterKillCredit.IsTowerOwned(source) ? player : null;
         }
 
@@ -430,19 +430,48 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
 
         private readonly List<MushroomMonster> supportAllies = new();
 
-        internal void TryReviveSupportAlly(MushroomMonster fallen, CharacterHealth creditedPlayer)
+        internal bool TryReviveSupportAlly(MushroomMonster fallen, CharacterHealth creditedPlayer)
         {
-            if (!fallen || fallen.TryGetComponent<GodBossController>(out _) || !creditedPlayer ||
-                !liveSpecies.TryGetValue(fallen, out var entry) || !entry.prefab) return;
-            int level = PlayerSupportUpgrades.For(creditedPlayer)?.Level(SupportUpgradeId.ReviveAlly) ?? 0;
-            if (level <= 0 || UnityEngine.Random.value >= .10f) return;
+            if (!fallen || fallen.IsSupportAlly || fallen.TryGetComponent<GodBossController>(out _) || !creditedPlayer)
+                return false;
 
+            int level = PlayerSupportUpgrades.For(creditedPlayer)?.Level(SupportUpgradeId.ReviveAlly) ?? 0;
+            float chance = AllyTuning.reviveChancePercent;
+            if (level <= 0 || chance <= 0f || (chance < 100f && UnityEngine.Random.value * 100f >= chance)) return false;
+
+            var prefab = SupportAllyPrefab(fallen);
+            if (!prefab) return false;
             supportAllies.RemoveAll(RemoveInactiveMonster);
-            var ally = Instantiate(entry.prefab, fallen.transform.position, fallen.transform.rotation, transform);
+            var ally = Instantiate(prefab, fallen.transform.position, fallen.transform.rotation, transform);
             ally.transform.localScale = fallen.transform.localScale;
             ally.InitializeSupportAlly(this, creditedPlayer, fallen, level);
             supportAllies.Add(ally);
+            return true;
         }
+
+        private MushroomMonster SupportAllyPrefab(MushroomMonster fallen)
+        {
+            if (liveSpecies.TryGetValue(fallen, out var spawned) && spawned.prefab)
+                return spawned.prefab;
+            var species = fallen.SpeciesData;
+            if (!species) return null;
+
+            foreach (var entry in RegularEntries)
+                if (MatchesSpecies(entry, species)) return entry.prefab;
+            foreach (var entry in monsters)
+                if (MatchesSpecies(entry, species)) return entry.prefab;
+            if (additionalRoster)
+            {
+                if (MatchesSpecies(additionalRoster.nightThief, species)) return additionalRoster.nightThief.prefab;
+                if (MatchesSpecies(additionalRoster.nightSkullclaw, species)) return additionalRoster.nightSkullclaw.prefab;
+                foreach (var entry in additionalRoster.Entries)
+                    if (MatchesSpecies(entry, species)) return entry.prefab;
+            }
+            return null;
+        }
+
+        private static bool MatchesSpecies(MonsterSpawnEntry entry, MonsterRewardData species) =>
+            entry != null && entry.prefab && entry.prefab.SpeciesData == species;
 
         private void ClearSupportAllies()
         {
@@ -463,11 +492,22 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
             if (DebugSpawningPaused) return;
             if (dayNight == null || !dayNight.isActiveAndEnabled) return;
             if(rewardDay!=dayNight.DayNumber||rewardPeriod!=dayNight.CurrentPeriod){rewardDay=dayNight.DayNumber;rewardPeriod=dayNight.CurrentPeriod;periodSpawns=0;periodRewarded=periodHasKill=false;}
-            if (scheduledDay != dayNight.DayNumber) BuildDailySchedule();
+            if (scheduledDay != dayNight.DayNumber && (!UsesStageDirector || (!IsOvertime && !StageRunComplete))) BuildDailySchedule();
             if(!player || player.Health<=0 || RuneStation.PlayerUsesRuneTime)return;
-            spawnElapsedSeconds+=Time.deltaTime;
+            if (StageRunComplete) return;
+            float previousElapsed = spawnElapsedSeconds;
+            spawnElapsedSeconds += Time.deltaTime;
+            if (UsesStageDirector) TickDirectorEvents(previousElapsed);
+            if (PlayerHuntMode && IsOvertime)
+            {
+                pendingStageSpawns = 0;
+                if (UsesStageDirector && CurrentStage == 1 && previousElapsed < CurrentStageDuration &&
+                    spawnSettings.firstOvertimeTrack)
+                    FindAnyObjectByType<MiningAudioManager>()?.PlayOvertimeIntro(spawnSettings.firstOvertimeTrack);
+                TickOvertime(Time.deltaTime);
+                return;
+            }
             TickGodEncounter();
-            if (PlayerHuntMode) TickOvertime(Time.deltaTime);
             if(spawnKills==0){TickTimedSpawns(Time.deltaTime);return;}
             TickAlune(Time.deltaTime);
             AnnounceDailyEvent();
@@ -655,29 +695,41 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
             var entry = monsters.Find(m => m != null && m.prefab == prefab);
             return entry != null && SpawnOne(entry, true);
         }
-        private bool SpawnOne(MonsterSpawnEntry entry, bool forceBoss = false, bool invasion = false, bool overtime = false, bool regular = false)
+        private bool SpawnOne(MonsterSpawnEntry entry, bool forceBoss = false, bool invasion = false, bool overtime = false, bool regular = false,
+            StageEnemyVariant variant = StageEnemyVariant.Normal, Vector3? anchor = null)
         {
             if (DebugSpawningPaused) return false;
             alive.RemoveAll(RemoveInactiveMonster);
-            if (LivingCountOnField() >= LivingMonsterLimit || (!overtime && !(regular ? CanSpawnRegular(entry) : CanSpawnSpecies(entry)))) return false;
+            if (entry?.prefab == null || LivingCountOnField() >= LivingMonsterLimit ||
+                (!overtime && variant == StageEnemyVariant.Normal && !(regular ? CanSpawnRegular(entry) : CanSpawnSpecies(entry))))
+                return false;
             MushroomMonster prefab = entry.prefab;
             var bossSettings = prefab.RewardData != null ? prefab.RewardData.boss : null;
             var tuning = MiningGameplayTuning.Current;
             bool ignoreLevel = tuning != null && tuning.IgnoreBossLevel;
             bool force = forceBoss || (tuning != null && tuning.ForceBossSpawns);
-            bool boss = !overtime && bossSettings != null && (force
+            bool boss = !overtime && variant == StageEnemyVariant.Normal && bossSettings != null && (force
                 ? bossSettings.CanSpawn(playerStats != null ? playerStats.Level : 1, ignoreLevel)
                 : bossSettings.Roll(playerStats != null ? playerStats.Level : 1, UnityEngine.Random.value, ignoreLevel));
             if (forceBoss && !boss) return false;
             float bossScale = boss ? bossSettings.ScaleMultiplier : 1f;
             float extraScale = invasion && dailyEvents != null ? 1f + Mathf.Max(0, dailyEvents.bossExtraSizePercent) * 0.01f : 1f;
-            bossScale *= extraScale;
+            if (regular && !boss && !invasion && UsesStageDirector &&
+                UnityEngine.Random.value < Mathf.Clamp01(spawnSettings.eliteChancePerDifficulty * Difficulty))
+                variant = StageEnemyVariant.Elite;
+            float variantSize = VariantSize(variant);
+            bossScale *= extraScale * variantSize;
             for (int attempt = 0; attempt < 24; attempt++)
             {
                 Vector3 position;
-                if (!(overtime ? TryGetOvertimeCandidate(out position) : TryGetSpawnCandidate(out position))) return false;
+                if (anchor.HasValue)
+                {
+                    var offset = UnityEngine.Random.insideUnitCircle.normalized * UnityEngine.Random.Range(5f, attempt < 12 ? 9f : 16f);
+                    position = anchor.Value + new Vector3(offset.x, 0, offset.y);
+                }
+                else if (!(overtime ? TryGetOvertimeCandidate(out position) : TryGetSpawnCandidate(out position))) return false;
                 if (!TryFindGround(position, out RaycastHit ground)) continue;
-                if (overtime ? !IsOffscreen(ground.point) : !IsValidSpawnDistance(ground.point)) continue;
+                if (overtime ? !IsOffscreen(ground.point) : !anchor.HasValue && !IsValidSpawnDistance(ground.point)) continue;
                 if (player != null && (player.transform.position - ground.point).sqrMagnitude <
                     PlayerClearance * PlayerClearance) continue;
                 var capsule = prefab.GetComponent<CharacterController>();
@@ -701,12 +753,20 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
                 instance.Initialize(this, player, boss);
                 if (overtime)
                 {
-                    float minutes = Mathf.Max(0, (spawnElapsedSeconds - spawnSettings.stageSeconds) / 60f);
-                    instance.ApplyEncounterModifiers(1, 1 + minutes * spawnSettings.overtimeDamagePercentPerMinute * .01f,
-                        1 + minutes * spawnSettings.overtimeHealthPercentPerMinute * .01f);
+                    float minutes = OvertimeMinutes;
+                    var ghost = GhostTuning;
+                    var tier = minutes >= ghost.redAtMinute ? GhostTier.Red : minutes >= ghost.purpleAtMinute
+                        ? GhostTier.Purple : minutes >= ghost.blackAtMinute ? GhostTier.Black : GhostTier.White;
+                    instance.SetGhostTier(tier);
+                    instance.ApplyEncounterModifiers(1, Difficulty * instance.GhostTierDamage *
+                        (1 + minutes * spawnSettings.overtimeDamagePercentPerMinute * .01f),
+                        Difficulty * (1 + minutes * spawnSettings.overtimeHealthPercentPerMinute * .01f));
+                    if (instance.IsOvertimeGhost) instance.transform.position += Vector3.up * ghost.hoverHeight;
                 }
-                if (regular && !boss && !invasion && StagePhase != null)
-                    instance.ApplyEncounterModifiers(1, 1, StageHealthMultiplier);
+                if (UsesStageDirector && !overtime)
+                    instance.ApplyEncounterModifiers(variantSize, Difficulty * VariantDamage(variant),
+                        StageHealthMultiplier * VariantHealth(variant));
+                instance.SetDirectorVariant(variant);
                 if (invasion && dailyEvents != null)
                     instance.ApplyEncounterModifiers(extraScale, 1f + Mathf.Max(0, dailyEvents.bossExtraDamagePercent) * 0.01f,
                         1f + Mathf.Max(0, dailyEvents.bossExtraHealthPercent) * .01f);

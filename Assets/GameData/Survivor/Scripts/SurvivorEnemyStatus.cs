@@ -10,7 +10,11 @@ namespace GameData.Player.Script
         private CharacterHealth health;
         private CharacterController motor;
         private GodBossController god;
-        public float ControlDurationMultiplier=>1-(god&&god.Data?Mathf.Clamp01(god.Data.crowdControlResistancePercent*.01f):0);
+        private MushroomMonster ghost;
+        public float ControlDurationMultiplier => ghost ? ghost.GhostControlMultiplier :
+            1 - (god && god.Data ? Mathf.Clamp01(god.Data.crowdControlResistancePercent * .01f) : 0);
+        private float LimitControlDuration(float duration) =>
+            ghost ? Mathf.Min(duration, ghost.GhostControlCap) : duration;
         private float weakRemaining,damageReduction,airTime,airDuration,airStartY,landingDamage,airHeight;
         private GameObject source;
         private float airCooldownRemaining,airCooldownOnLanding;
@@ -27,7 +31,7 @@ namespace GameData.Player.Script
         public float DamageTakenMultiplier=>1+(Frosted?Mathf.Max(0,frostVulnerability)*.01f:0);
         public bool Chill(float slow,float vulnerability,float duration,Color tint)
         {
-            duration*=ControlDurationMultiplier;
+            duration = LimitControlDuration(duration * ControlDurationMultiplier);
             if(Frosted||duration<=0)return false;
             bool began=true;
             FrostTint=tint;frostSlow=Mathf.Clamp(slow,0,100);frostVulnerability=Mathf.Max(0,vulnerability);frostRemaining=duration;
@@ -43,7 +47,7 @@ namespace GameData.Player.Script
         private void ClearFrost(){if(frostRenderers!=null)for(int i=0;i<frostRenderers.Length;i++)if(frostRenderers[i])frostRenderers[i].SetPropertyBlock(frostOriginal[i].isEmpty?null:frostOriginal[i]);frostRenderers=null;frostOriginal=null;frostSlow=frostVulnerability=frostRemaining=0;}
         public float DamageReduction=>weakRemaining>0?damageReduction:0;
         public bool Airborne=>airDuration>0;
-        private void Awake(){health=GetComponent<CharacterHealth>();if(health)health.EnemyStatus=this;motor=GetComponent<CharacterController>();god=GetComponent<GodBossController>();}
+        private void Awake(){health=GetComponent<CharacterHealth>();if(health)health.EnemyStatus=this;motor=GetComponent<CharacterController>();god=GetComponent<GodBossController>();if(TryGetComponent<MushroomMonster>(out var monster)&&monster.IsOvertimeGhost)ghost=monster;}
         public void Weaken(float amount,float duration){duration*=ControlDurationMultiplier;if(weakRemaining>0||duration<=0)return;damageReduction=Mathf.Max(0,amount);weakRemaining=duration;}
         public void RecordHit(SurvivorAbilities owner,int level)
         {
@@ -54,7 +58,7 @@ namespace GameData.Player.Script
             while(combo.hits.Count>0&&Time.time-combo.hits.Peek()>Mathf.Max(.01f,rule.hitWindow))combo.hits.Dequeue();
             combo.hits.Enqueue(Time.time);
             if(combo.hits.Count<Mathf.Max(1,rule.requiredHits))return;
-            combos.Clear();airCooldownOnLanding=Mathf.Max(0,rule.cooldown);airTime=0;airDuration=Mathf.Max(.001f,rule.flightDuration*control);airHeight=Mathf.Max(0,rule.height*control);airStartY=transform.position.y;
+            combos.Clear();airCooldownOnLanding=Mathf.Max(0,rule.cooldown);airTime=0;airDuration=Mathf.Max(.001f,LimitControlDuration(rule.flightDuration*control));airHeight=Mathf.Max(0,rule.height*control);airStartY=transform.position.y;
             landingDamage=health.MaxHealth*rule.enemyMaxHealthPercent*.01f+rule.landingDamage.At(level);source=owner.gameObject;
         }
         private void Update()

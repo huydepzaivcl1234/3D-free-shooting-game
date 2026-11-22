@@ -89,7 +89,9 @@ namespace MiningSimulator.Ores
 
         private void ApplyBossPulseDamage()
         {
-            if (player == null || !player.isActiveAndEnabled || player.Health <= 0) return;
+            var player = owner.CombatTarget;
+            if (!player || !player.isActiveAndEnabled || !player.IsTargetable) return;
+            var playerCollider = player.GetComponent<Collider>();
             Vector3 origin = transform.position;
             Vector3 point = playerCollider != null && playerCollider.enabled
                 ? playerCollider.ClosestPoint(origin + Vector3.up * .5f) : player.transform.position;
@@ -98,7 +100,7 @@ namespace MiningSimulator.Ores
                 Vector3.ProjectOnPlane(point - origin, Vector3.up).sqrMagnitude > range * range ||
                 !owner.HasStrikeLineOfSight(player.transform, point)) return;
             player.DealDamage(player.MaxHealth * Mathf.Clamp(BossSettings.playerMaxHealthDamagePercent, 0, 100)
-                * .01f, CombatDamageType.True);
+                * .01f, CombatDamageType.True, gameObject);
         }
 
         private void PresentBossPulse(float progress)

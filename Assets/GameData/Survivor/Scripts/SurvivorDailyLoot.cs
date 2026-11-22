@@ -24,6 +24,7 @@ namespace GameData.Player.Script
         private readonly RaycastHit[] groundHits=new RaycastHit[32];
         private readonly Collider[] obstacles=new Collider[32];
         private readonly List<Vector3> placementPath = new();
+        private readonly List<Vector3> lootPositions = new();
         internal int RerollsRemaining => data && !saveBlocked ? Mathf.Max(0, data.rerollsPerRun - progress.rerollsUsed) : 0;
         internal bool SpendReroll()
         {
@@ -93,16 +94,12 @@ namespace GameData.Player.Script
             return nearest;
         }
 
-        internal string ChestPrompt()
+        internal string WorldPriceText()
         {
-            if (!NearbyChest()) return null;
             var upgrades = PlayerSupportUpgrades.For(cards.Player);
             if (!upgrades || !upgrades.HasEligibleUpgrade)
-                return MiningLocalization.Text("Support upgrades maxed", "Nâng cấp bổ trợ đã đạt cấp tối đa");
-            return (CanAffordNext
-                ? MiningLocalization.TextKey("SURVIVOR_CHEST_VIEW_PROMPT", "[E]  View chest")
-                : MiningLocalization.Text("Not enough gold", "Không đủ vàng"))
-                + "  ·  " + PriceLabel + " " + MiningLocalization.Text("gold", "vàng");
+                return MiningLocalization.Text("Maxed", "Đã tối đa");
+            return PriceLabel + " " + MiningLocalization.Text("gold", "vàng");
         }
         private void Load()
         {
@@ -162,32 +159,44 @@ namespace GameData.Player.Script
             while (boxes.Count < progress.boxes.Count) boxes.Add(null);
             bool spawned = false;
             var terrain = rule ? mapFeatures.Arena : null;
+            Vector3 densityOrigin = terrain?.Center ?? progress.origin;
+            int densityCount = -1;
             for (int i = 0; i < progress.boxes.Count; i++)
             {
                 var record = progress.boxes[i];
                 if (record.collected || boxes[i]) continue;
+                if (densityCount < 0)
+                {
+                    lootPositions.Clear();
+                    if (mapFeatures) mapFeatures.CaptureLootPositions(lootPositions);
+                    else foreach (var box in boxes) if (box) lootPositions.Add(box.transform.position);
+                    densityCount = MapFeaturePopulator.CountSpawnDensityItems(lootPositions, densityOrigin);
+                }
                 Vector3 point;
                 bool correctSavedPosition = false;
                 if (record.runtime != null)
                 {
                     point = record.runtime.falling ? record.runtime.landing : record.runtime.position;
                     Vector3 savedPosition = point;
-                    bool overDensityLimit = MapFeaturePopulator.SpawnDensityLimitReached(point, progress.origin,
-                        MapFeaturePopulator.CountSpawnDensityItems(progress.origin));
                     if (terrain != null)
                     {
                         var grid = WorldNavigationGrid.Instance;
-                        if ((overDensityLimit || !terrain.TryGetFlatSupport(point, rule.clearance, out point, out _) ||
-                            (terrain is TerrainGenerator && grid && !grid.TryFindPath(terrain.Center, point, placementPath))) &&
-                            !TryFindPosition(i, out point)) continue;
+                        bool validGround = terrain.TryGetFlatSupport(point, rule.clearance, out point, out _) &&
+                            (!(terrain is TerrainGenerator) || !grid || grid.TryFindPath(terrain.Center, point, placementPath));
+                        if (!validGround || !HasPlacementClearance(point, densityOrigin, densityCount, rule.spacing))
+                        {
+                            if (TryFindPosition(i, densityOrigin, densityCount, out var replacement)) point = replacement;
+                            else if (!validGround) continue;
+                        }
                     }
-                    else if (overDensityLimit && !TryFindPosition(i, out point)) continue;
                     correctSavedPosition = record.runtime.falling || (savedPosition - point).sqrMagnitude > .000001f;
                 }
-                else if (Time.timeScale <= 0 || !TryFindPosition(i, out point))
+                else if (Time.timeScale <= 0 || !TryFindPosition(i, densityOrigin, densityCount, out point))
                     continue;
 
                 SpawnBox(i, point);
+                lootPositions.Add(point);
+                if (MapFeaturePopulator.IsInsideSpawnDensityBand(point, densityOrigin)) densityCount++;
                 if (terrain != null)
                     boxes[i].transform.position = point;
                 if (record.runtime == null || correctSavedPosition)
@@ -216,7 +225,11 @@ namespace GameData.Player.Script
             BoxesSpawned++;
         }
 
-        private bool TryFindPosition(int index, out Vector3 position)
+        private bool HasPlacementClearance(Vector3 point, Vector3 densityOrigin, int densityCount, float spacing) =>
+            !MapFeaturePopulator.SpawnDensityLimitReached(point, densityOrigin, densityCount) &&
+            MapFeaturePopulator.HasLootClearance(lootPositions, point, Mathf.Max(spacing, MapFeaturePopulator.LootSpacing));
+
+        private bool TryFindPosition(int index, Vector3 densityOrigin, int densityCount, out Vector3 position)
         {
             position = default;
             bool bonus = progress.boxes[index].bonus;
@@ -225,7 +238,6 @@ namespace GameData.Player.Script
             Vector3 origin = progress.origin;
             var grid = WorldNavigationGrid.Instance;
             if (grid && !grid.HasBaked) return false;
-            int densityCount = MapFeaturePopulator.CountSpawnDensityItems(origin);
             int near = Mathf.Clamp(data.nearBoxCount, 0, boxCount);
             int mid = Mathf.Clamp(data.midBoxCount, 0, boxCount - near);
             bool isNear = index < near;
@@ -241,31 +253,38 @@ namespace GameData.Player.Script
                 int tier = rule.minTier + (rule.maxTier - rule.minTier + 1) * index / boxCount;
                 Vector3 reachableFrom = bonus ? cards.Player.transform.position : origin;
                 int pathAttempts = 0;
-                bool Fits(Vector3 p)
-                {
-                    float distance = Vector3.ProjectOnPlane(p - origin, Vector3.up).magnitude;
-                    if (!bonus && (distance < min || distance > max)) return false;
-                    if (MapFeaturePopulator.SpawnDensityLimitReached(p, origin, densityCount)) return false;
-                    foreach (var box in boxes)
-                        if (box && (box.transform.position - p).sqrMagnitude < rule.spacing * rule.spacing)
-                            return false;
-                    return !grid || (!grid.IsPortalSpawnExcluded(p, rule.clearance) &&
+                bool Fits(Vector3 p) => HasPlacementClearance(p, densityOrigin, densityCount, rule.spacing) &&
+                    (!grid || (pathAttempts < 24 && !grid.IsPortalSpawnExcluded(p, rule.clearance) &&
                         grid.IsCapsulePlacementClear(p, rule.clearance, 1.25f) &&
-                        (!bonus || pathAttempts++ < 24) && grid.TryFindPath(reachableFrom, p, placementPath));
+                        CheckPath(p)));
+
+                bool CheckPath(Vector3 p)
+                {
+                    pathAttempts++;
+                    return grid.TryFindPath(reachableFrom, p, placementPath);
+                }
+
+                bool FitsBand(Vector3 p)
+                {
+                    float distance = Vector3.ProjectOnPlane(p - origin, Vector3.up).sqrMagnitude;
+                    return distance >= min * min && distance <= max * max && Fits(p);
                 }
 
                 if (!bonus && terrain is TerrainGenerator native && native.TryGetLootSpawn(index, out var authoredPoint) &&
-                    Fits(authoredPoint))
+                    FitsBand(authoredPoint))
                 {
                     position = authoredPoint;
                     return true;
                 }
                 if (bonus)
                     return terrain.TryGetFlatSpot(0, terrain.MaxTier, rule.clearance, rule.spacing, Fits, out position, out _);
-                if (terrain.TryGetFlatSpot(tier, tier, rule.clearance, rule.spacing, Fits, out position, out _) ||
-                    terrain.TryGetFlatSpot(rule.minTier, rule.maxTier, rule.clearance, rule.spacing, Fits, out position, out _))
+                if (terrain.TryGetFlatSpot(tier, tier, rule.clearance, rule.spacing, FitsBand, out position, out _) ||
+                    terrain.TryGetFlatSpot(rule.minTier, rule.maxTier, rule.clearance, rule.spacing, FitsBand, out position, out _))
                     return true;
-                return false;
+                pathAttempts = 0;
+                return terrain.TryGetFlatSpot(0, terrain.MaxTier, rule.clearance, rule.spacing,
+                    p => Vector3.ProjectOnPlane(p - origin, Vector3.up).sqrMagnitude >= 36f && Fits(p),
+                    out position, out _);
             }
 
             for (int attempt = 0; attempt < 48; attempt++)
@@ -288,7 +307,7 @@ namespace GameData.Player.Script
                 if (grid && !grid.TryGetGroundPoint(candidate, out candidate)) continue;
                 bool nav=NavMesh.SamplePosition(candidate,out var walkable,1.25f,NavMesh.AllAreas);if(nav)candidate=walkable.position;
                 float distance=Vector3.ProjectOnPlane(candidate-origin,Vector3.up).magnitude;if(distance<min||distance>max)continue;
-                if (MapFeaturePopulator.SpawnDensityLimitReached(candidate, origin, densityCount)) continue;
+                if (!HasPlacementClearance(candidate, densityOrigin, densityCount, 0f)) continue;
                 int count=Physics.RaycastNonAlloc(candidate+Vector3.up*8,Vector3.down,groundHits,40,data.groundLayers,QueryTriggerInteraction.Ignore);
                 bool found=false;float top=float.NegativeInfinity;
                 for(int i=0;i<count;i++){var hit=groundHits[i];if(hit.normal.y<.7f||hit.collider.GetComponentInParent<CharacterHealth>()||hit.collider.GetComponentInParent<SurvivorLootBox>())continue;if(nav&&Mathf.Abs(hit.point.y-candidate.y)>1.5f)continue;if(hit.point.y>top){top=hit.point.y;position=hit.point;found=true;}}

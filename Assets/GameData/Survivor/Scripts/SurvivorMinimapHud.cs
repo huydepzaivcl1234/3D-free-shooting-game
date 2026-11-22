@@ -15,10 +15,12 @@ namespace MiningSimulator.Ores
         private const int GroundResolution = 192;
         private const float TrackingInterval = 1f / 12f;
         private const float DiscoveryInterval = .75f;
+        private const float MarkerSize = 17f;
+        private const float ArtworkMarkerSize = 22f;
         private static readonly Color32 VoidColor = new(12, 15, 22, 255);
         private static readonly Vector2 TopRight = Vector2.one;
 
-        private enum Icon { Player, Lantern, Shrine, Chest, Portal, OpenPortal }
+        private enum Icon { Player, Lantern, Shrine, Chest, Portal, OpenPortal, AbilityBox }
 
         private static readonly string[][] Glyphs =
         {
@@ -46,11 +48,13 @@ namespace MiningSimulator.Ores
         private Terrain terrain;
         private MonsterSpawnZone stage;
         private SurvivorDailyLoot loot;
+        private SurvivorAbilityLoot abilityLoot;
         private RectTransform disk, playerArrow;
         private CanvasGroup visibility;
         private RawImage groundImage;
         private Texture2D groundTexture, iconAtlas, diskTexture;
         private Sprite diskSprite;
+        private Sprite lootBoxSprite, chestSprite, lanternSprite;
         private Sprite[] iconSprites;
         private Vector2 mapOrigin, mapExtent;
         private Vector3 projectedCenter;
@@ -114,6 +118,9 @@ namespace MiningSimulator.Ores
             groundImage.enabled = false;
 
             BuildIconAtlas();
+            lootBoxSprite = Resources.Load<Sprite>("SurvivorMinimapLootBox");
+            chestSprite = Resources.Load<Sprite>("SurvivorMinimapChest");
+            lanternSprite = Resources.Load<Sprite>("SurvivorMinimapLantern");
             playerArrow = MakeImage("Player", disk, iconSprites[(int)Icon.Player], 20f, 20f).rectTransform;
             AddDirection("N", Vector2.up);
             AddDirection("E", Vector2.right);
@@ -191,6 +198,8 @@ namespace MiningSimulator.Ores
                 stage = FindInScene<MonsterSpawnZone>(scene);
             if (!loot || !loot.isActiveAndEnabled || loot.gameObject.scene != scene)
                 loot = FindInScene<SurvivorDailyLoot>(scene);
+            if (!abilityLoot || !loot || abilityLoot.gameObject != loot.gameObject)
+                abilityLoot = loot ? loot.GetComponent<SurvivorAbilityLoot>() : null;
         }
 
         private static T FindInScene<T>(Scene scene) where T : MonoBehaviour
@@ -288,6 +297,9 @@ namespace MiningSimulator.Ores
             if (loot)
                 foreach (var box in loot.CurrentBoxes)
                     if (box && box.isActiveAndEnabled) markers.Add((box, Icon.Chest));
+            if (abilityLoot && abilityLoot.isActiveAndEnabled)
+                foreach (var box in abilityLoot.CurrentBoxes)
+                    if (box && box.isActiveAndEnabled) markers.Add((box, Icon.AbilityBox));
         }
 
         private void DrawMarkers()
@@ -309,23 +321,33 @@ namespace MiningSimulator.Ores
 
             int used = 0;
             float pixelsPerMeter = disk.rect.width / ViewWidth;
-            float radius = disk.rect.width * .5f - 9f;
             foreach (var (source, icon) in markers)
             {
                 if (!source || !source.gameObject.activeInHierarchy) continue;
                 Vector3 delta = source.transform.position - center;
                 var offset = new Vector2(delta.x, delta.z) * pixelsPerMeter;
+                float size = icon is Icon.AbilityBox or Icon.Chest or Icon.Lantern ? ArtworkMarkerSize : MarkerSize;
+                float radius = disk.rect.width * .5f - Mathf.Ceil(size * .5f);
                 if (offset.sqrMagnitude > radius * radius) continue;
                 Icon display = source is StagePortalVisual portal && portal.IsOpeningOrOpen ? Icon.OpenPortal : icon;
+                Sprite sprite = display switch
+                {
+                    Icon.AbilityBox when lootBoxSprite => lootBoxSprite,
+                    Icon.Chest when chestSprite => chestSprite,
+                    Icon.Lantern when lanternSprite => lanternSprite,
+                    Icon.AbilityBox => iconSprites[(int)Icon.Chest],
+                    _ => iconSprites[(int)display]
+                };
                 if (used == markerViews.Count)
                 {
-                    var marker = MakeImage("Map marker", disk, iconSprites[(int)display], 17f, 17f);
+                    var marker = MakeImage("Map marker", disk, sprite, size, size);
                     marker.rectTransform.SetSiblingIndex(playerArrow.GetSiblingIndex());
                     markerViews.Add(marker);
                 }
 
                 var view = markerViews[used++];
-                view.sprite = iconSprites[(int)display];
+                view.sprite = sprite;
+                if (view.rectTransform.sizeDelta.x != size) view.rectTransform.sizeDelta = Vector2.one * size;
                 view.rectTransform.anchoredPosition = offset;
                 view.enabled = true;
             }

@@ -64,14 +64,13 @@ namespace MiningSimulator.Ores
         [Min(0)] public float hoverLiftDuration = .35f;
         [Range(0,1)] public float groundNormalMinimum = .6f;
         public LayerMask landingLayers = ~0;
-        [Header("Sparkling upgrade button — Anime Star VFX")]
-        public GameObject sparkleVfx;
-        public Material sparkleComposite;
-        [Min(16)] public float sparkleSize=100;
-        public float sparkleInset=28;
+        [Header("Sparkling upgrade card")]
+        public Material sparklingWipe;
         [Header("Queued card icons")]
         public Sprite statQueueIcon,abilityQueueIcon;
         [Header("Choice panel")]
+        public bool rustCharcoalLayout;
+        public Material rustCharcoalBackdrop;
         public Vector2 panelSize = new(900,420);
         public Color panelColor = new(.035f,.045f,.07f,.98f);
         public Color buttonColor = new(.10f,.14f,.21f,1f);

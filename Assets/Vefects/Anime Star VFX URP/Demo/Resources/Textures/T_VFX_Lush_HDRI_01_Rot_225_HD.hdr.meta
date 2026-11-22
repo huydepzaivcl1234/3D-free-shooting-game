@@ -1,5 +1,5 @@
 fileFormatVersion: 2
-guid: 71c510faa0bf5b444b7da3f559d4f98c
+guid: 2a2600a669555114fb50d029a795cf17
 TextureImporter:
   internalIDToNameTable: []
   externalObjects: {}
@@ -69,7 +69,7 @@ TextureImporter:
   platformSettings:
   - serializedVersion: 3
     buildTarget: DefaultTexturePlatform
-    maxTextureSize: 2048
+    maxTextureSize: 1024
     resizeAlgorithm: 0
     textureFormat: -1
     textureCompression: 2
@@ -112,8 +112,8 @@ TextureImporter:
   assetBundleVariant: 
 AssetOrigin:
   serializedVersion: 1
-  productId: 404472
-  packageName: Anime Star VFX - URP
-  packageVersion: 1.0.1
+  productId: 396100
+  packageName: Linear Wipe VFX
+  packageVersion: 1.0
   assetPath: Assets/Vefects/Anime Star VFX URP/Demo/Resources/Textures/T_VFX_Lush_HDRI_01_Rot_225_HD.hdr
-  uploadId: 988830
+  uploadId: 975026

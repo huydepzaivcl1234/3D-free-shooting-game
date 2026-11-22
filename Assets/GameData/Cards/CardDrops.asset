@@ -84,10 +84,9 @@ MonoBehaviour:
   landingLayers:
     serializedVersion: 2
     m_Bits: 4294967295
-  sparkleVfx: {fileID: 4645475155591706760, guid: bc6d67faf57b3a546882906b75b80899, type: 3}
-  sparkleComposite: {fileID: 2100000, guid: 78cd9971a1209714aa86b099a08e15d0, type: 2}
-  sparkleSize: 100
-  sparkleInset: 28
+  sparklingWipe: {fileID: 2100000, guid: dbfb966f575c4d89a93446e0bd565240, type: 2}
+  rustCharcoalLayout: 1
+  rustCharcoalBackdrop: {fileID: 2100000, guid: b8c2daca9edc43e5bd9ca09bcee4470d, type: 2}
   statQueueIcon: {fileID: 21300000, guid: 6f0d0ada721cf7d418fba2c4e9d64e04, type: 3}
   abilityQueueIcon: {fileID: 21300000, guid: 59a7335fbe21b754f99ab2c83b92a818, type: 3}
   panelSize: {x: 900, y: 420}

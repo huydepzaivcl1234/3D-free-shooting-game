@@ -7,6 +7,10 @@ namespace MiningSimulator.Ores
     {
         private AudioClip runeAmbience;
         private bool runeAmbienceActive;
+        private AudioSource overtimeSource;
+        private bool overtimePaused;
+        private float overtimeFadeElapsed;
+        private bool OvertimeIntroActive => overtimeSource && overtimeSource.clip;
         public void BeginRuneAmbience(AudioClip clip)
         {
             runeAmbience = clip;
@@ -29,19 +33,77 @@ namespace MiningSimulator.Ores
             PlayWorldAmbience(true);
         }
 
+        internal void PlayOvertimeIntro(AudioClip clip)
+        {
+            if (!audioData || !ambienceSource || OvertimeIntroActive || !EnsureClipLoaded(clip)) return;
+            StopAmbiencePlaylist();
+            StopWorldAmbienceSwitch();
+
+            overtimeSource = ResolveSource(overtimeSource, ambienceSource.transform.parent, "Overtime Music Source");
+            overtimeSource.playOnAwake = false;
+            overtimeSource.loop = false;
+            overtimeSource.spatialBlend = 0f;
+            overtimeSource.outputAudioMixerGroup = audioData.MusicMixerGroup;
+            overtimeSource.mute = musicMuted;
+            overtimeSource.clip = clip;
+            overtimeFadeElapsed = 0f;
+            overtimePaused = false;
+            overtimeSource.volume = audioData.AmbienceFadeDuration > 0f ? 0f : GetMusicVolume();
+            overtimeSource.Play();
+            FadeAmbienceTo(0f, true);
+        }
+
+        private void TickOvertimeIntro()
+        {
+            // Listener pause already freezes the source. Handle menu and time-scale pauses separately.
+            if (!OvertimeIntroActive || AudioListener.pause) return;
+            bool shouldPause = Time.timeScale <= 0f || mainMenuMusicActive || shopThemeActive ||
+                runeAmbienceActive || upgradeThemeActive;
+            if (shouldPause)
+            {
+                if (!overtimePaused) overtimeSource.Pause();
+                overtimePaused = true;
+                return;
+            }
+            if (overtimePaused)
+            {
+                overtimeSource.UnPause();
+                overtimePaused = false;
+                return;
+            }
+
+            if (!overtimeSource.isPlaying)
+            {
+                StopOvertimeIntro();
+                PlayWorldAmbience(true);
+                return;
+            }
+
+            overtimeFadeElapsed += Time.unscaledDeltaTime;
+            float duration = audioData.AmbienceFadeDuration;
+            float progress = duration > 0f ? Mathf.Clamp01(overtimeFadeElapsed / duration) : 1f;
+            overtimeSource.volume = GetMusicVolume() * (.5f - .5f * Mathf.Cos(progress * Mathf.PI));
+        }
+
+        private void StopOvertimeIntro()
+        {
+            if (!overtimeSource) return;
+            overtimeSource.Stop();
+            overtimeSource.clip = null;
+            overtimePaused = false;
+        }
+
         private void PlayWorldAmbience(bool fadeIn)
         {
             if (runeAmbienceActive) { BeginRuneAmbience(runeAmbience); return; }
             mainMenuMusicActive = false;
             shopThemeActive = false;
-            if (musicSource != null && musicSource.isPlaying)
+            if (!upgradeThemeActive && musicSource != null && musicSource.isPlaying)
             {
                 FadeMusicTo(0f, true);
             }
 
-
-
-            if (audioData == null || ambienceSource == null || musicMuted)
+            if (OvertimeIntroActive || audioData == null || ambienceSource == null || musicMuted)
             {
                 return;
             }

@@ -15,7 +15,7 @@ namespace GameData.Player.Editor
         [MenuItem("Tools/Debug/Weapon Test")]
         public static void Open() => GetWindow<WeaponDebugWindow>("Weapon Debug");
 
-        [MenuItem("Tools/Debug/Survivor Upgrade Debug _F8")]
+        [MenuItem("Tools/Debug/Survivor Upgrade Debug")]
         public static void ToggleSurvivorUpgradeDebug()
         {
             if (!EditorApplication.isPlaying)
@@ -31,7 +31,7 @@ namespace GameData.Player.Editor
                 return;
             }
 
-            if (!panel.ToggleFromEditor())
+            if (!panel.TogglePanel())
             {
                 Debug.LogWarning("Close the current menu before opening the upgrade debug panel.");
                 return;

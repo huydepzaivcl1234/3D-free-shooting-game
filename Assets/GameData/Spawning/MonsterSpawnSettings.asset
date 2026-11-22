@@ -118,6 +118,24 @@ MonoBehaviour:
   world1BossShrineCount: 4
   world2BossShrineCount: 4
   stageSeconds: 600
+  stageTwoSeconds: 540
+  stageThreeSeconds: 480
+  difficultyPerStage: 0.35
+  eliteChancePerDifficulty: 0.006
+  eliteHealth: 3
+  eliteSize: 1.25
+  eliteExperience: 10
+  rewardChestChance: 0.02
+  firstMinibossSecond: 180
+  secondMinibossSecond: 480
+  firstMiniboss: {fileID: 2305570719447537217, guid: 839c3acd08f172c42bd2b3568a9ec554, type: 3}
+  secondMiniboss: {fileID: 6569428935759115125, guid: c00d46f0db867e34183fab59c9141426, type: 3}
+  stageBoss: {fileID: 8381387769689784945, guid: a22d7fcf32841994a95fba7985c7dc51, type: 3}
+  firstSwarmSecond: 240
+  secondSwarmSecond: 420
+  swarmDuration: 40
+  firstSwarmRate: 2
+  secondSwarmRate: 3
   stagePhases:
   - startSecond: 0
     livingLimit: 25
@@ -140,7 +158,34 @@ MonoBehaviour:
     batchSize: 2
     movementBonusPercent: 25
   ordinaryHealthAtStageEnd: 1.75
-  overtimeEnemy: {fileID: 8773178799201064012, guid: 21613d889b5e46b48ae8ac4978bcc20d, type: 3}
+  supportAlly:
+    reviveChancePercent: 10
+    inheritedCombatPercent: 10
+    flatPointsPerLevel: 5
+    enemyAggroRange: 0
+    allySearchRange: 0
+    targetRefreshSeconds: 0.25
+    followDistance: 3
+  ghost:
+    hoverHeight: 0.55
+    contactPadding: 0.08
+    turnDegreesPerSecond: 540
+    blackAtMinute: 1
+    purpleAtMinute: 6
+    redAtMinute: 12
+    blackDamage: 1.2
+    purpleDamage: 1.8
+    redDamage: 2.25
+    whiteColor: {r: 0.9372549, g: 0.9607843, b: 1, a: 1}
+    blackColor: {r: 0.2117647, g: 0.1921569, b: 0.2666667, a: 1}
+    purpleColor: {r: 0.6235294, g: 0.3529412, b: 0.9411765, a: 1}
+    redColor: {r: 0.9607843, g: 0.2666667, b: 0.2627451, a: 1}
+    surgeAtMinute: 20
+    surgeSpeedMultiplier: 1.35
+    controlCapSeconds: 15
+    controlDecayMinutes: 15
+  overtimeEnemy: {fileID: 8499242670555071266, guid: ab57013839ebc5e4991c36290a4a9efb, type: 3}
+  firstOvertimeTrack: {fileID: 8300000, guid: fdc1f5ce5d51bde428c465217895dff4, type: 3}
   overtimeBatchSize: 3
   overtimeInterval: 3
   overtimeMinimumInterval: 0.55

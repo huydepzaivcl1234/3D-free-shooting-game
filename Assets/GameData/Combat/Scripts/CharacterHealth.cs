@@ -419,7 +419,10 @@ public void ConfigureMaximumHealth(float value, bool preserveDamage = true)
                 if (nameLabel != null)
                 {
                     string title = string.IsNullOrWhiteSpace(displayName) ? gameObject.name.Replace("(Clone)", "") : displayName;
-                    nameLabel.text = string.IsNullOrEmpty(status) ? MiningLocalization.Text(title) : status.Trim();
+                    string localizedTitle = MiningLocalization.Text(title);
+                    if (monster && monster.IsSupportAlly)
+                        localizedTitle = string.Format(MiningLocalization.TextKey("MONSTER_SUPPORT_ALLY", "{0} (Ally)"), localizedTitle);
+                    nameLabel.text = string.IsNullOrEmpty(status) ? localizedTitle : status.Trim();
                 }
                 if (levelLabel != null)
                 {
