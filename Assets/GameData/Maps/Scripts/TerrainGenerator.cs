@@ -28,6 +28,7 @@ namespace MiningSimulator.Ores
         private const int PaintResolution = 512;
         private const int DefaultLootCount = 10;
         private const int MapSize = 10;
+        [SerializeField] private float fallRecoveryHeight = -12f;
         private static readonly Vector2Int[] Directions =
             { Vector2Int.right, Vector2Int.up, Vector2Int.left, Vector2Int.down };
 
@@ -98,7 +99,7 @@ namespace MiningSimulator.Ores
 
         public void Generate(int newSeed)
         {
-            if (layers == null || layers.Length != 3 || Array.Exists(layers, layer => !layer))
+            if (!UsesBlocks && (layers == null || layers.Length != 3 || Array.Exists(layers, layer => !layer)))
             {
                 Debug.LogError("Terrain Generator requires grass, rock and dirt Terrain Layers.", this);
                 return;
@@ -131,29 +132,34 @@ namespace MiningSimulator.Ores
             var terrain = GetComponent<Terrain>();
             terrain.heightmapPixelError = 15;
             terrain.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            if (Application.isPlaying && !runtimeData)
-                runtimeData = Instantiate(terrain.terrainData);
-            var data = Application.isPlaying ? runtimeData : terrain.terrainData;
-            data.heightmapResolution = HeightResolution;
-            data.alphamapResolution = PaintResolution;
-            data.size = new Vector3(worldSize, maxHeight, worldSize);
             transform.position = new Vector3(-worldSize * .5f, 0f, -worldSize * .5f);
-            terrain.terrainData = data;
-            data.SetHeights(0, 0, heights);
-            data.terrainLayers = layers;
             surfaceCollider = GetComponent<TerrainCollider>();
-            surfaceCollider.terrainData = null;
-            surfaceCollider.terrainData = data;
             terrain.enabled = !UsesBlocks;
             surfaceCollider.enabled = !UsesBlocks;
             if (UsesBlocks) BuildBlocks(tiers, slopes);
             else
             {
                 ClearBlocks();
+                if (Application.isPlaying && !runtimeData)
+                    runtimeData = Instantiate(terrain.terrainData);
+                var data = Application.isPlaying ? runtimeData : terrain.terrainData;
+                data.heightmapResolution = HeightResolution;
+                data.alphamapResolution = PaintResolution;
+                data.size = new Vector3(worldSize, maxHeight, worldSize);
+                terrain.terrainData = data;
+                data.SetHeights(0, 0, heights);
+                data.terrainLayers = layers;
+                surfaceCollider.terrainData = null;
+                surfaceCollider.terrainData = data;
                 Paint(data, dirt);
+                terrain.Flush();
             }
-            terrain.Flush();
-            if (border) border.SetSize(new Vector3(worldSize, Mathf.Max(border.Size.y, maxHeight + 8f), worldSize));
+            if (border)
+            {
+                border.enabled = !UsesBlocks;
+                if (border.enabled)
+                    border.SetSize(new Vector3(worldSize, Mathf.Max(border.Size.y, maxHeight + 8f), worldSize));
+            }
             Physics.SyncTransforms();
             HasLayout = true;
             query = 0;
@@ -162,19 +168,15 @@ namespace MiningSimulator.Ores
             occupied.AddRange(lootSpawnPoints);
             if (player)
             {
-                var motor = player.GetComponent<CharacterController>();
-                bool enabled = motor && motor.enabled;
-                if (enabled) motor.enabled = false;
-                player.position = new Vector3(0f, data.GetInterpolatedHeight(.5f, .5f) + 2f, 0f);
-                if (player.TryGetComponent<Rigidbody>(out var body))
-                {
-                    body.position = player.position;
-                    if (!body.isKinematic) body.linearVelocity = Vector3.zero;
-                }
-                if (enabled) motor.enabled = true;
+                var spawn = Center;
+                if (player.TryGetComponent<CapsuleCollider>(out var capsule) && capsule.enabled)
+                    spawn.y += player.position.y - capsule.bounds.min.y;
+                PlacePlayer(spawn + Vector3.up * .01f);
             }
 
             Physics.SyncTransforms();
+            if (player && player.TryGetComponent<GameData.Player.Script.PlayerController1>(out var motor))
+                motor.ResetMotion();
             var grid = navigation ? navigation : WorldNavigationGrid.Instance;
             if (grid) grid.ConfigureArea(Vector3.zero, Vector2.one * worldSize);
             OnMapGenerated?.Invoke();
@@ -419,7 +421,38 @@ namespace MiningSimulator.Ores
             data.SetAlphamaps(0, 0, weights);
         }
 
-        private Vector3 SampleAtCenter() => new(0f, GetComponent<Terrain>().terrainData.GetInterpolatedHeight(.5f, .5f), 0f);
+        private Vector3 SampleAtCenter()
+        {
+            if (blockTiers != null && SampleBlock(Vector3.zero, out var center, out _)) return center;
+            return new Vector3(0f, GetComponent<Terrain>().terrainData.GetInterpolatedHeight(.5f, .5f), 0f);
+        }
+
+        private void FixedUpdate()
+        {
+            if (!UsesBlocks || !HasLayout || !player || player.position.y >= fallRecoveryHeight) return;
+            if (player.TryGetComponent<CharacterHealth>(out var health) && health.Health <= 0f) return;
+            PlacePlayer(Center + Vector3.up * 2f);
+            if (player.TryGetComponent<GameData.Player.Script.PlayerController1>(out var controller))
+                controller.ResetMotion();
+        }
+
+        private void PlacePlayer(Vector3 position)
+        {
+            var motor = player.GetComponent<CharacterController>();
+            bool enabled = motor && motor.enabled;
+            if (enabled) motor.enabled = false;
+            player.position = position;
+            if (player.TryGetComponent<Rigidbody>(out var body))
+            {
+                body.position = position;
+                if (!body.isKinematic)
+                {
+                    body.linearVelocity = Vector3.zero;
+                    body.angularVelocity = Vector3.zero;
+                }
+            }
+            if (enabled) motor.enabled = true;
+        }
 
         public bool TrySample(Vector3 point, out Vector3 surface, out Vector3 normal)
         {

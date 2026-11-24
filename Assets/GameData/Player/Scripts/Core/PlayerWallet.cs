@@ -21,6 +21,7 @@ namespace MiningSimulator.Ores
         public float CurrentMoney => currentMoney;
         public float CurrentGems => currentGems;
         public GameEconomyData GameData => gameData;
+        internal bool GoldFromQuestsOnly => gameData && gameData.GoldFromQuestsOnly;
         public event Action<float> MoneyChanged;
         public event Action<float> MoneySpent;
         public event Action<float> GemsChanged;

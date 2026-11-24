@@ -55,19 +55,32 @@ namespace GameData.Player.Script
             loot.features = FindAnyObjectByType<MapFeaturePopulator>();
         }
 
+        internal bool PrepareStartupStep()
+        {
+            PrepareLayoutStep();
+            return progress == null || nextIndex >= progress.boxes.Count &&
+                (MapBoxCount >= progress.count || failedPlacements >= 3);
+        }
+
         private void LateUpdate()
+        {
+            if (Time.timeScale <= 0f) return;
+            if (PrepareLayoutStep()) CollectNearby();
+        }
+
+        private bool PrepareLayoutStep()
         {
             if (!woodLoot || !woodLoot.isActiveAndEnabled || !cards || !cards.Player ||
                 !features || !features.PopulationReady || features.Arena is not { HasLayout: true } arena ||
-                RunCheckpoint.IsRestoring || Time.timeScale <= 0f) return;
+                RunCheckpoint.IsRestoring) return false;
 
             var grid = WorldNavigationGrid.Instance;
-            if (!grid || !grid.HasBaked || GameSave.SuppressWrites || !GameSave.Store.Writable || loadBlocked) return;
+            if (!grid || !grid.HasBaked || GameSave.SuppressWrites || !GameSave.Store.Writable || loadBlocked) return false;
 
             if (progress == null || progress.seed != arena.Seed)
                 LoadLayout(arena.Seed);
 
-            if (progress == null) return;
+            if (progress == null) return false;
             if (nextIndex < progress.boxes.Count)
             {
                 var record = progress.boxes[nextIndex];
@@ -105,7 +118,12 @@ namespace GameData.Player.Script
                     Debug.LogWarning($"Placed {progress.boxes.Count}/{progress.count} blue Ability Loot Boxes.", this);
             }
 
-            if (!cards.CanCollect) return;
+            return true;
+        }
+
+        private void CollectNearby()
+        {
+            if (!woodLoot || !cards || !cards.Player || RunCheckpoint.IsRestoring || !cards.CanCollect) return;
             float radiusSquared = woodLoot.data.pickupRadius * woodLoot.data.pickupRadius;
             Vector3 player = cards.Player.transform.position;
             for (int i = 0; i < live.Count; i++)

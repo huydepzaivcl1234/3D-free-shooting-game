@@ -159,6 +159,8 @@ namespace MiningSimulator.Ores
             }
             EnsureClipLoaded(audioData.SunriseRoosterSfx);
             EnsureClipLoaded(audioData.ButtonClickSfx);
+            EnsureClipLoaded(audioData.MainMenuHoverSfx);
+            EnsureClipLoaded(audioData.MainMenuClickSfx);
             EnsureClipLoaded(audioData.UpgradePurchasedSfx);
             EnsureClipLoaded(audioData.LevelUpSfx);
             EnsureClipLoaded(audioData.RebirthSfx);

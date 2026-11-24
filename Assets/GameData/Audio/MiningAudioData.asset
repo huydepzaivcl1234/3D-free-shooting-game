@@ -46,6 +46,8 @@ MonoBehaviour:
   monsterDropSfx: {fileID: 8300000, guid: d3d65f11176076946863f253030c757f, type: 3}
   monsterLootSfx: {fileID: 8300000, guid: c69a862dde12f444da21e16558b7dd07, type: 3}
   buttonClickSfx: {fileID: 8300000, guid: c827175ac1520f24193f96c9f3a3f753, type: 3}
+  mainMenuHoverSfx: {fileID: 8300000, guid: 13d1f2ef5f1e18b4d8c19623e5e1ad73, type: 3}
+  mainMenuClickSfx: {fileID: 8300000, guid: 4302a06edc7c78b4d92aabb925023da4, type: 3}
   panelOpenSfx: {fileID: 0}
   panelCloseSfx: {fileID: 0}
   wheelSpinSfx: {fileID: 8300000, guid: bc9b89f6417d1b645a585b7e48a470aa, type: 3}

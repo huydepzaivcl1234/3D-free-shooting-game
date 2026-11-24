@@ -27,6 +27,8 @@ namespace MiningSimulator.Ores
         {
             public int version=1;
             public float elapsed,credit,overtimeCredit;
+            public bool hasOvertimeMusicPosition;
+            public float overtimeMusicPosition;
             public bool godShrinePlaced,godShrineUsed;
             public Vector3 godShrinePoint;
             public List<GodShrineState> godShrines;
@@ -65,6 +67,13 @@ namespace MiningSimulator.Ores
         {
             if(restoringWorld||worldLoadFailed||!started||!player)return;
             var save=new SavedWorld{playerId=RunStateFields.Id(player),elapsed=spawnElapsedSeconds,credit=spawnCredit,overtimeCredit=overtimeCredit,godShrines=godShrines,hasQuest=questNpcEncounter?.State!=null,quest=questNpcEncounter?.State,spawnPacingVersion=1,spawnKills=spawnKills,initialMonsterSpawned=initialMonsterSpawned,playerPosition=player.transform.position,day=SpawnDayNumber,eventKind=(int)CurrentDailyEvent,eventAnnouncement=dailyAnnouncementPending,thiefDay=thiefDay,thieves=spawnedThieves};
+            var track = FirstOvertimeTrack;
+            if (IsOvertime && track)
+            {
+                save.hasOvertimeMusicPosition = true;
+                save.overtimeMusicPosition = pendingOvertimeMusicPosition ??
+                    (audioManager ? audioManager.OvertimeIntroPosition(track) : -1f);
+            }
             if(alune)save.alune=alune.Capture();
             save.pendingStageSpawns = pendingStageSpawns;
             save.directorStage = CurrentStage;
@@ -140,6 +149,15 @@ namespace MiningSimulator.Ores
                 if(player){var rb=player.GetComponent<Rigidbody>();if(rb){rb.position=saved.playerPosition;rb.linearVelocity=Vector3.zero;}player.transform.position=saved.playerPosition;}
                 spawnElapsedSeconds=Mathf.Max(0,saved.elapsed);
                 RestoreDirector(saved);
+                var track = FirstOvertimeTrack;
+                if (IsOvertime && track)
+                {
+                    // Older checkpoints only stored the stage clock.
+                    float position = saved.hasOvertimeMusicPosition
+                        ? saved.overtimeMusicPosition : spawnElapsedSeconds - CurrentStageDuration;
+                    pendingOvertimeMusicPosition = float.IsFinite(position) && position >= 0f && position < track.length
+                        ? position : null;
+                }
                 if (saved.quest != null && (saved.hasQuest || saved.quest.placed))
                     questNpcEncounter?.Restore(saved.quest);
                 overtimeCredit=Mathf.Max(0,saved.overtimeCredit);

@@ -22,7 +22,8 @@ namespace MiningSimulator.Ores
         private SurvivorAbilities shield;
         private Rigidbody playerBody;
         private TMP_FontAsset font;
-        private RectTransform hud, footBar;
+        private RectTransform hud, footBar, npcQuestRow;
+        private TMP_Text npcQuestText;
         private RectTransform xp, hp, energy, shieldFill, footFill;
         private TMP_Text elapsed, gems, gold, kills, level, healthLabel, fps, exitState, lanterns, shrines, chests;
         private UnityEngine.UI.Image exitBackground;
@@ -100,6 +101,12 @@ namespace MiningSimulator.Ores
             var objective = Rect(hud, "Exit objective", TopLeft, TopLeft, new Vector2(18,-264), new Vector2(300,32));
             exitBackground = Plate(objective, Dark);
             exitState = Label(objective, "Exit status", TopLeft, TopLeft, 8, 0, 286, 32, 20);
+
+            npcQuestRow = Rect(hud, "NPC quest tracker", TopLeft, TopLeft, new Vector2(18, -302), new Vector2(300, 32));
+            Plate(npcQuestRow, Dark);
+            npcQuestText = Label(npcQuestRow, "Active NPC quests", TopLeft, TopLeft, 8, -4, 284, 24, 18);
+            npcQuestText.textWrappingMode = TextWrappingModes.Normal;
+            npcQuestRow.gameObject.SetActive(false);
 
             var progress = Rect(hud, "Map progress", Vector2.right, Vector2.right, new Vector2(-19,115), new Vector2(252,101));
             Plate(progress, Dark);
@@ -214,6 +221,7 @@ namespace MiningSimulator.Ores
             exitBackground.color = exitSeen ? new Color(.04f,.31f,.13f,.90f) : Dark;
             exitState.text = stage.IsOvertime ? "✓  " + MiningLocalization.Text("Exit open", "Cổng thoát đã mở")
                 : (exitSeen ? "✓  " : "–  ") + MiningLocalization.Text("Find the exit", "Tìm cổng thoát");
+            RefreshNpcQuest();
             int used = 0;
             foreach (var pillar in pillars) if (pillar && pillar.IsClaimed) used++;
             lanterns.SetText(MiningLocalization.Text("Charge shrines", "Cột đèn") + "   {0:0} / {1:0}", used, pillars.Length);
@@ -221,6 +229,20 @@ namespace MiningSimulator.Ores
             int collected = loot ? loot.CollectedBoxCount : 0;
             int total = loot ? loot.TotalBoxCount : 0;
             chests.SetText(MiningLocalization.Text("Chests", "Rương") + "   {0:0} / {1:0}", collected, total);
+        }
+
+        private void RefreshNpcQuest()
+        {
+            string progress = stage.ActiveNpcQuestProgress;
+            bool visible = !string.IsNullOrEmpty(progress);
+            if (npcQuestRow.gameObject.activeSelf != visible)
+                npcQuestRow.gameObject.SetActive(visible);
+            if (!visible || npcQuestText.text == progress) return;
+
+            npcQuestText.text = progress;
+            float height = Mathf.Ceil(npcQuestText.GetPreferredValues(progress, npcQuestText.rectTransform.rect.width, 0).y);
+            npcQuestText.rectTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, height);
+            npcQuestRow.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, height + 8f);
         }
 
         private TMP_Text ProgressRow(RectTransform progress, float y)

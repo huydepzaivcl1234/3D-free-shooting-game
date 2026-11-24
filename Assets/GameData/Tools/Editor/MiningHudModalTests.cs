@@ -46,7 +46,7 @@ public sealed class MiningHudModalTests
     [Test] public void ActiveModalAndInactiveHudAreNotHiddenOrActivated()
     {
         var modal = Make("Custom Panel");
-        typeof(UiPanelCoordinator).GetField("activeModal", BindingFlags.NonPublic | BindingFlags.Instance)
+        typeof(UiPanelCoordinator).GetProperty("activeModal", BindingFlags.NonPublic | BindingFlags.Instance)
             .SetValue(coordinator, modal);
         var hidden = Make("Hidden Toast"); hidden.gameObject.SetActive(false);
         SetVisible(false);

@@ -44,7 +44,6 @@ namespace MiningSimulator.Ores
     {
         private static TerrainGenerator activeArena;
         private static int nextLookupFrame;
-        private static int probeFrame = -1, remainingProbes;
         private static TerrainGenerator goalMap;
         private static int goalFrame = -1, goalSeed;
         private static Vector2 goalPoint;
@@ -52,7 +51,7 @@ namespace MiningSimulator.Ores
         private static bool goalSupported;
         private static readonly int groundMask = LayerMask.GetMask("Ground");
         private static readonly int propsMask = LayerMask.GetMask("MapObstacle");
-        private static readonly Collider[] crowdedLedge = new Collider[16];
+        private static readonly int enemyLayer = LayerMask.NameToLayer("Enemy");
 
         private readonly CharacterController motor;
         private readonly uint id;
@@ -60,11 +59,11 @@ namespace MiningSimulator.Ores
         private enum Traversal { Walking, Climbing, Falling }
         private Traversal traversal;
         private TerrainGenerator arena;
-        private Vector3 grip, landing, wallOutward, fallVelocity, climbGoal, initialLanding;
+        private Vector3 grip, landing, wallOutward, fallVelocity;
         private float2 drive, impact;
-        private float verticalSpeed, climbSpeed, blockedTime, cliffRetry, climbStall, nextRetarget;
+        private float verticalSpeed, climbSpeed, blockedTime, cliffRetry, climbStall;
         private int arenaSeed;
-        private bool reducedStep, shiftedGrip, alignToGrip;
+        private bool reducedStep;
         private Vector3 walkNormal = Vector3.up, contactNormal = Vector3.up;
         private int contactFrame = -1;
 
@@ -91,6 +90,7 @@ namespace MiningSimulator.Ores
         internal MonsterTerrainController(CharacterController motor)
         {
             this.motor = motor;
+            if (enemyLayer >= 0) motor.gameObject.layer = enemyLayer;
             stepOffset = motor.stepOffset;
             id = unchecked((uint)motor.GetHashCode());
         }
@@ -99,7 +99,6 @@ namespace MiningSimulator.Ores
         private static void ResetArena()
         {
             nextLookupFrame = 0;
-            probeFrame = -1;
             activeArena = null;
             goalMap = null;
             goalFrame = -1;
@@ -124,14 +123,10 @@ namespace MiningSimulator.Ores
                 !TrySampleGoal(map, goal, out var goalFloor)) return false;
             Vector3 toward = goal - motor.transform.position;
             var delta = new float2(toward.x, toward.z);
-            if (spread)
-            {
-                float2 pursuit = MonsterTerrainRules.PursuitDirection(id, delta, reach);
-                if (Mathf.Abs(goalFloor.y - floor.y) > MonsterTerrainRules.DropThreshold)
-                    pursuit = math.normalizesafe(math.lerp(math.normalizesafe(delta), pursuit, .6f));
-                direction = new Vector3(pursuit.x, 0f, pursuit.y);
-            }
-            else direction = new Vector3(delta.x, 0f, delta.y).normalized;
+            bool sameElevation = Mathf.Abs(goalFloor.y - floor.y) <= MonsterTerrainRules.DropThreshold;
+            float2 pursuit = spread && sameElevation
+                ? MonsterTerrainRules.PursuitDirection(id, delta, reach) : math.normalizesafe(delta);
+            direction = new Vector3(pursuit.x, 0f, pursuit.y);
             return true;
         }
 
@@ -190,7 +185,8 @@ namespace MiningSimulator.Ores
             return velocity;
         }
 
-        internal bool TryMove(Vector3 velocity, float dt, Vector3? goal = null, float crowdSupport = 0f)
+        internal bool TryMove(Vector3 velocity, float dt, Vector3? goal = null, float crowdSupport = 0f,
+            float pursuitSpeed = 0f)
         {
             var map = BlockArena();
             if (map != arena || map && map.Seed != arenaSeed)
@@ -217,7 +213,7 @@ namespace MiningSimulator.Ores
             if (traversal == Traversal.Climbing)
             {
                 drive = impact = float2.zero;
-                if (goal.HasValue && RedirectClimb(foot, shape, goal.Value)) return true;
+                if (goal.HasValue && ShouldDrop(foot, goal.Value)) return true;
                 Climb(foot, shape, dt);
                 return true;
             }
@@ -237,19 +233,34 @@ namespace MiningSimulator.Ores
 
             cliffRetry = Mathf.Max(0f, cliffRetry - dt);
             velocity.y = 0f;
-            if (goal.HasValue) velocity *= MonsterTerrainRules.SpeedVariation(id);
-            float speed = velocity.magnitude;
-            if (grounded && speed > .01f)
+            if (goal.HasValue)
             {
-                Vector3 direction = velocity / speed;
-                if (cliffRetry <= 0f && CrowdClimbHeight < .05f && TryGrip(foot, floor.y, direction, shape, speed))
+                float variation = MonsterTerrainRules.SpeedVariation(id);
+                velocity *= variation;
+                pursuitSpeed *= variation;
+            }
+            float speed = velocity.magnitude;
+            float wallSpeed = Mathf.Max(speed, pursuitSpeed);
+            if (grounded && wallSpeed > .01f)
+            {
+                Vector3 direction = speed > .01f ? velocity / speed : Vector3.zero;
+                Vector3 towardWall = direction;
+                bool mayClimb = true;
+                if (goal.HasValue && TrySampleGoal(arena, goal.Value, out var goalFloor))
                 {
-                    climbGoal = goal ?? (foot + direction * 2f);
-                    initialLanding = landing;
+                    mayClimb = goalFloor.y >= floor.y - MonsterTerrainRules.DropThreshold;
+                    if (goalFloor.y > floor.y + MonsterTerrainRules.DropThreshold)
+                        towardWall = Vector3.ProjectOnPlane(goal.Value - foot, Vector3.up).normalized;
+                }
+                if (cliffRetry <= 0f && mayClimb && towardWall.sqrMagnitude > .01f &&
+                    TryGrip(foot, floor.y, towardWall, shape, wallSpeed))
+                {
+                    CrowdClimbHeight = 0f;
+                    drive = impact = float2.zero;
                     Climb(foot, shape, dt);
                     return true;
                 }
-                if (blockedTime > .15f) velocity = AvoidProp(foot, shape, direction) * speed;
+                if (blockedTime > .15f && speed > .01f) velocity = AvoidProp(foot, shape, direction) * speed;
             }
 
             var desired = new float2(velocity.x, velocity.z);
@@ -296,6 +307,15 @@ namespace MiningSimulator.Ores
         private bool TryGrip(Vector3 foot, float floor, Vector3 direction, NavigationProfile shape, float speed)
         {
             float reach = shape.Radius + MonsterTerrainRules.WallReach;
+            Vector3 x = direction.x >= 0f ? Vector3.right : Vector3.left;
+            Vector3 z = direction.z >= 0f ? Vector3.forward : Vector3.back;
+            float xContact = BlockContact(foot, x, Mathf.Abs(direction.x), shape.Radius, reach, out var xFace);
+            float zContact = BlockContact(foot, z, Mathf.Abs(direction.z), shape.Radius, reach, out var zFace);
+            bool xFirst = xContact <= zContact;
+            if (xFirst && xContact < float.PositiveInfinity && TryBeginGrip(xFace, -x, floor, shape, speed)) return true;
+            if (zContact < float.PositiveInfinity && TryBeginGrip(zFace, -z, floor, shape, speed)) return true;
+            if (!xFirst && xContact < float.PositiveInfinity && TryBeginGrip(xFace, -x, floor, shape, speed)) return true;
+
             if (!arena.TrySample(foot + direction * reach, out var ahead, out _) || ahead.y - floor < .65f)
                 return false;
             Vector3 chest = foot + Vector3.up * Mathf.Min(.65f, shape.Height * .45f);
@@ -307,21 +327,34 @@ namespace MiningSimulator.Ores
                 !hit.collider.transform.IsChildOf(arena.transform)) return false;
 
             Vector3 outward = new Vector3(hit.normal.x, 0f, hit.normal.z).normalized;
+            Vector3 face = foot + outward * Vector3.Dot(hit.point - foot, outward);
+            return TryBeginGrip(face, outward, floor, shape, speed);
+        }
+
+        private float BlockContact(Vector3 foot, Vector3 inward, float approach, float radius, float reach,
+            out Vector3 face)
+        {
+            face = foot;
+            if (approach < .035f || !arena.TryGetRisingBlockFace(foot, inward, reach, out face))
+                return float.PositiveInfinity;
+            return Mathf.Max(0f, Vector3.Dot(face - foot, inward) - radius) / approach;
+        }
+
+        private bool TryBeginGrip(Vector3 face, Vector3 outward, float floor, NavigationProfile shape, float speed)
+        {
             float gap = shape.Radius + .08f + motor.skinWidth * Mathf.Abs(motor.transform.lossyScale.x);
-            Vector3 top = hit.point - outward * (gap + .35f);
+            Vector3 top = face - outward * (gap + .35f);
             if (!TryLanding(top, shape, out var surface) || surface.y - floor < .65f) return false;
-            grip = hit.point + outward * gap;
+            grip = face + outward * gap;
             wallOutward = outward;
             landing = surface + Vector3.up * .1f;
             climbSpeed = speed * MonsterTerrainRules.ClimbSpeedFactor;
             climbStall = 0f;
-            shiftedGrip = alignToGrip = false;
-            nextRetarget = 0f;
             traversal = Traversal.Climbing;
             return true;
         }
 
-        private bool RedirectClimb(Vector3 foot, NavigationProfile shape, Vector3 goal)
+        private bool ShouldDrop(Vector3 foot, Vector3 goal)
         {
             Vector3 forward = goal - foot;
             forward.y = 0f;
@@ -335,16 +368,6 @@ namespace MiningSimulator.Ores
                 return true;
             }
 
-            Vector3 along = Vector3.ProjectOnPlane(goal - climbGoal - (landing - initialLanding), wallOutward);
-            along.y = 0f;
-            if (along.sqrMagnitude < .36f || Time.time < nextRetarget || !TakeProbe()) return false;
-            nextRetarget = Time.time + .18f;
-            Vector3 offset = Vector3.ClampMagnitude(along, .6f);
-            if (TryOffsetGrip(offset, shape))
-            {
-                climbStall = 0f;
-                // Continue climbing while following the new grip along the wall.
-            }
             return false;
         }
 
@@ -355,18 +378,6 @@ namespace MiningSimulator.Ores
             fallVelocity = direction * Mathf.Clamp(climbSpeed / MonsterTerrainRules.ClimbSpeedFactor,
                 MonsterTerrainRules.MinimumDropSpeed, MonsterTerrainRules.MaximumDropSpeed);
             cliffRetry = .5f;
-        }
-
-        private static bool TakeProbe()
-        {
-            if (probeFrame != Time.frameCount)
-            {
-                probeFrame = Time.frameCount;
-                remainingProbes = 12;
-            }
-            if (remainingProbes == 0) return false;
-            remainingProbes--;
-            return true;
         }
 
         private bool TryLanding(Vector3 top, NavigationProfile shape, out Vector3 surface)
@@ -383,10 +394,9 @@ namespace MiningSimulator.Ores
         {
             SetAirborne(true);
             Vector3 lateral = new(foot.x - grip.x, 0f, foot.z - grip.z);
-            if (alignToGrip && lateral.sqrMagnitude < .06f) alignToGrip = false;
             var inward = -wallOutward;
             bool crossingFace = Vector3.Dot(lateral, inward) > .12f;
-            bool atLedge = !alignToGrip && (crossingFace || foot.y >= landing.y - .06f);
+            bool atLedge = crossingFace || foot.y >= landing.y - .06f;
             Vector3 goal = atLedge ? landing : new Vector3(grip.x, landing.y, grip.z);
             // A ramp can rise into the exit path before the capsule reaches the stored landing.
             if (atLedge && arena.TrySample(foot + inward * (shape.Radius + .1f), out var lip, out var lipNormal) &&
@@ -409,51 +419,11 @@ namespace MiningSimulator.Ores
             }
             climbStall = (next - goal).sqrMagnitude >= (foot - goal).sqrMagnitude - step.sqrMagnitude * .1f
                 ? climbStall + dt : 0f;
-            if (climbStall > .25f && !shiftedGrip && TakeProbe())
-            {
-                shiftedGrip = true;
-                if (TryShiftGrip(shape)) climbStall = 0f;
-            }
             if (climbStall > .65f)
             {
                 // Clear the face so the rounded foot cannot balance on the lip during the fall.
                 BeginFall(wallOutward);
             }
-        }
-
-        private bool TryShiftGrip(NavigationProfile shape)
-        {
-            Vector3 side = Vector3.Cross(Vector3.up, wallOutward) * Mathf.Max(1.3f, shape.Radius * 1.35f);
-            if ((id & 1u) != 0) side = -side;
-            for (int i = 0; i < 4; i++)
-            {
-                Vector3 offset = side * ((i & 1) == 0 ? 1 + i / 2 : -(1 + i / 2));
-                if (TryOffsetGrip(offset, shape)) return true;
-            }
-            return false;
-        }
-
-        private bool TryOffsetGrip(Vector3 offset, NavigationProfile shape)
-        {
-            if (!TryLanding(landing + offset, shape, out var surface) ||
-                Mathf.Abs(surface.y + .1f - landing.y) > .3f ||
-                !arena.TrySample(grip + offset, out var wallFoot, out _) || wallFoot.y > surface.y - .65f ||
-                LandingOccupied(surface, shape)) return false;
-            grip += offset;
-            landing = surface + Vector3.up * .1f;
-            alignToGrip = true;
-            return true;
-        }
-
-        private bool LandingOccupied(Vector3 surface, NavigationProfile shape)
-        {
-            Vector3 bottom = surface + Vector3.up * (shape.Radius + .12f);
-            Vector3 top = surface + Vector3.up * (shape.Height - shape.Radius + .12f);
-            int count = Physics.OverlapCapsuleNonAlloc(bottom, top, shape.Radius,
-                crowdedLedge, ~groundMask & ~propsMask, QueryTriggerInteraction.Ignore);
-            for (int i = 0; i < count; i++)
-                if (crowdedLedge[i] is CharacterController occupant && occupant != motor) return true;
-            return false;
         }
 
         private bool Supported(float footHeight, float floorHeight, Vector3 normal)

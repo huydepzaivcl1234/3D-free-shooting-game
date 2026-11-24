@@ -13,7 +13,58 @@ MonoBehaviour:
   m_Name: MiningQuestData
   m_EditorClassIdentifier: Assembly-CSharp::MiningSimulator.Ores.MiningQuestData
   saveKey: MiningSimulator.Quests.v1
+  dailyResetHour: 0
+  weeklyResetDay: 1
+  weeklyResetHour: 0
   quests:
+  - questId: daily_kills
+    period: 0
+    objective: 3
+    species: 0
+    difficulty: 0
+    targetAmount: 40
+    englishName: Defeat {0} enemies
+    vietnameseName: Hạ {0} quái
+    rewardType: 0
+    moneyReward: 150
+    randomMoneyMinimum: 0
+    randomMoneyMaximum: 0
+  - questId: daily_xp
+    period: 0
+    objective: 5
+    species: 0
+    difficulty: 0
+    targetAmount: 200
+    englishName: Collect {0} XP
+    vietnameseName: Nhặt {0} XP
+    rewardType: 0
+    moneyReward: 200
+    randomMoneyMinimum: 0
+    randomMoneyMaximum: 0
+  - questId: weekly_kills
+    period: 1
+    objective: 3
+    species: 0
+    difficulty: 0
+    targetAmount: 300
+    englishName: Defeat {0} enemies
+    vietnameseName: Hạ {0} quái
+    rewardType: 0
+    moneyReward: 1000
+    randomMoneyMinimum: 0
+    randomMoneyMaximum: 0
+  - questId: weekly_xp
+    period: 1
+    objective: 5
+    species: 0
+    difficulty: 0
+    targetAmount: 1500
+    englishName: Collect {0} XP
+    vietnameseName: Nhặt {0} XP
+    rewardType: 0
+    moneyReward: 1500
+    randomMoneyMinimum: 0
+    randomMoneyMaximum: 0
   - questId: daily_mushroom
     period: 0
     objective: 3

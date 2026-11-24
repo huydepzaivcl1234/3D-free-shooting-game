@@ -88,14 +88,11 @@ namespace MiningSimulator.Ores
         private float nextCrowdSample,nextBrainTick,skippedBrainTime,navigationStep;
         private Vector3 cachedMovement;
         private static readonly int WalkStateHash=Animator.StringToHash("Walk");
-        private LayerMask originalCrowdExcludes;
         internal CharacterController CrowdMotor=>motor;
         internal bool CrowdActive=>!IsOvertimeGhost&&isActiveAndEnabled&&!IsDespawning&&health&&health.Health>0&&(!visibility||!visibility.SimulationPaused);
         private void ConfigureCrowd(bool enabled)
         {
             if(!motor||enabled==softCrowd)return;
-            if(enabled){originalCrowdExcludes=motor.excludeLayers;motor.excludeLayers=originalCrowdExcludes.value|LayerMask.GetMask("Enemy");}
-            else motor.excludeLayers=originalCrowdExcludes;
             softCrowd=enabled;crowdSupport=0f;crowdOffset=Vector3.zero;nextCrowdSample=Time.time+(GetHashCode()&1023)/1024f*.05f;
         }
         private CharacterHealth health;
@@ -169,6 +166,15 @@ namespace MiningSimulator.Ores
             (CombatData != null ? CombatData.SafeAttackSpeed : 1f) * bossSkill.AttackSpeedMultiplier;
         public float EffectiveAttackCooldown => attackCooldown / AttackSpeed;
         public CharacterHealth Health => health;
+        internal bool TryGetCrowdPose(out int pose)
+        {
+            pose = animationState == WalkStateHash ? 1 : 0;
+            if (!isActiveAndEnabled || IsDespawning || !health || health.Health <= 0f) return false;
+            if (IsOvertimeGhost) return true;
+            return animator && !animator.IsInTransition(0) && !damageReactionPending &&
+                (hitReactionLayer < 0 || animator.GetLayerWeight(hitReactionLayer) <= 0f) &&
+                (pose == 1 || animationState == 0 || animationState == Animator.StringToHash("Idle"));
+        }
 
         public int Level { get; private set; } = 1;
         private float scaledDamage;
@@ -296,6 +302,7 @@ namespace MiningSimulator.Ores
                 Vector3 center = motor.center;
                 center.y = foot + height * .5f;
                 motor.center = center;
+                terrainMotor = new MonsterTerrainController(motor);
             }
             rangedAttack = GetComponent<IMonsterRangedAttack>();
             forestGolem = GetComponent<ForestGolemAbility>();
@@ -717,6 +724,7 @@ namespace MiningSimulator.Ores
 
         private void MoveMotor(Vector3 movement)
         {
+                float pursuitSpeed = movement.magnitude;
                 var performance=GameplayPerformanceData.Current;
                 bool crowd=performance&&performance.softCrowdSeparation&&!IsBoss&&Skullclaw==null&&forestGolem==null;
                 ConfigureCrowd(crowd);
@@ -731,7 +739,7 @@ namespace MiningSimulator.Ores
                 }
                 Vector3? goal = target && target.IsTargetable && playerDetected ? target.transform.position : null;
                 if (TerrainMotor.TryMove(movement, Time.deltaTime, goal,
-                    crowd && movement.sqrMagnitude > .0001f ? crowdSupport : 0f)) return;
+                    crowd && movement.sqrMagnitude > .0001f ? crowdSupport : 0f, pursuitSpeed)) return;
                 verticalSpeed = motor.isGrounded ? -2f : verticalSpeed + Physics.gravity.y * Time.deltaTime;
                 motor.Move((movement + TerrainMotor.ConsumeImpact(Time.deltaTime) +
                     Vector3.up * verticalSpeed) * Time.deltaTime);
@@ -786,7 +794,8 @@ namespace MiningSimulator.Ores
                 range = Mathf.Max(range, (motor.radius + motor.skinWidth) * HitScale + .15f);
             }
             bool inRange = Skullclaw != null ? CanSkullclawEngage : centerOffset.sqrMagnitude <= range * range;
-            return inRange && HasStrikeLineOfSight(victim, point);
+            return inRange && (Skullclaw != null || !TerrainMotor.DifferentTier(victim.position)) &&
+                HasStrikeLineOfSight(victim, point);
         }
 
         private bool ContainsVictim(Transform victim, Collider victimCollider)

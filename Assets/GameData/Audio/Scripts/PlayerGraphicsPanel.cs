@@ -13,6 +13,7 @@ namespace MiningSimulator.Ores
         private PlayerGraphicsOptions options;
         private RectTransform page, content;
         private TMP_FontAsset font;
+        private UIStyle survivorTheme;
         private Sprite buttonSprite;
         private UnityEngine.UI.Slider sliderTemplate;
         private readonly List<Action> refreshers = new();
@@ -64,6 +65,30 @@ namespace MiningSimulator.Ores
             MiningLocalization.LanguageChanged += RefreshLanguage;
         }
 
+        internal void ApplySurvivorTheme(UIStyle theme, Sprite bevel)
+        {
+            survivorTheme = theme;
+            font = theme.Pixel;
+            buttonSprite = bevel;
+            if (!page) return;
+            if (page.TryGetComponent(out UnityEngine.UI.Image background))
+            {
+                background.sprite = bevel;
+                background.color = theme.panel;
+            }
+            foreach (var text in page.GetComponentsInChildren<TextMeshProUGUI>(true))
+            {
+                text.font = font;
+                text.color = theme.ink;
+            }
+            foreach (var button in page.GetComponentsInChildren<UnityEngine.UI.Button>(true))
+                if (button.targetGraphic is UnityEngine.UI.Image face)
+                {
+                    face.sprite = bevel;
+                    face.color = theme.card;
+                }
+        }
+
         private static void ResizeEntry(Transform entry, float x)
         {
             if (entry is not RectTransform rect) return;
@@ -74,6 +99,8 @@ namespace MiningSimulator.Ores
             foreach (var text in entry.GetComponentsInChildren<TextMeshProUGUI>(true))
             { text.rectTransform.sizeDelta = new Vector2(225,42); text.fontSize = Mathf.Min(text.fontSize,19); }
         }
+
+        internal bool IsOpen => page && page.gameObject.activeInHierarchy;
 
         public void Open()
         {
@@ -107,8 +134,18 @@ namespace MiningSimulator.Ores
             Label("QUALITY", "CHẤT LƯỢNG");
             Slider("Render distance", "Khoảng cách hiển thị",25,1000,()=>options.Values.renderDistance,v=>options.Values.renderDistance=v,"0 m");
             Choice("Post-processing", "Hậu kỳ",()=>OnOff(options.Values.postProcessing),()=>options.Values.postProcessing=!options.Values.postProcessing);
-            Choice("Camera AA", "Khử răng cưa",()=>new[]{"None","FXAA","SMAA"}[options.Values.aaMode],()=>options.Values.aaMode=(options.Values.aaMode+1)%3);
-            Choice("AA quality", "Chất lượng AA",()=>new[]{"Low","Medium","High"}[options.Values.aaQuality],()=>options.Values.aaQuality=(options.Values.aaQuality+1)%3);
+            Choice("Camera AA", "Khử răng cưa", () => options.Values.aaMode switch
+            {
+                0 => MiningLocalization.TextKey("SETTINGS_GRAPHICS_AA_OFF", "Off"),
+                1 => "FXAA",
+                _ => "SMAA"
+            }, () => options.Values.aaMode = (options.Values.aaMode + 1) % 3);
+            Choice("AA quality", "Chất lượng AA", () => options.Values.aaQuality switch
+            {
+                0 => MiningLocalization.TextKey("SETTINGS_GRAPHICS_LOW", "Low"),
+                1 => MiningLocalization.TextKey("SETTINGS_GRAPHICS_MEDIUM", "Medium"),
+                _ => MiningLocalization.TextKey("SETTINGS_GRAPHICS_HIGH", "High")
+            }, () => options.Values.aaQuality = (options.Values.aaQuality + 1) % 3);
             Choice("MSAA", "MSAA",()=>options.SupportsMsaa?options.Values.msaa+"x":"Deferred: unavailable",()=>options.Values.msaa=options.Values.msaa==8?1:options.Values.msaa*2,()=>options.SupportsMsaa);
             Choice("Shadow cascades", "Phân tầng bóng",
                 ()=>Mathf.Min(options.Values.cascades,options.ShadowCascadeLimit).ToString(),
@@ -149,7 +186,8 @@ namespace MiningSimulator.Ores
             if(lastCountdown==countdown && previewWasPending==options.DisplayPending) return;
             previewWasPending=options.DisplayPending; lastCountdown=countdown;
             hint.text=options.DisplayPending
-                ? MiningLocalization.Text($"Keep display? Reverting in {options.DisplaySecondsRemaining:0}s",$"Giữ hiển thị? Hoàn tác sau {options.DisplaySecondsRemaining:0}s")
+                ? string.Format(MiningLocalization.TextKey("SETTINGS_GRAPHICS_CONFIRM_DISPLAY",
+                    "Keep display? Reverting in {0}s"), countdown)
                 : MiningLocalization.Text(Application.isEditor?"Resolution/fullscreen must be tested in a build. Scroll for more.":"Click values to cycle. Scroll for more options.",
                     Application.isEditor?"Độ phân giải/toàn màn hình chỉ đổi trong bản build. Cuộn để xem thêm.":"Bấm giá trị để đổi. Cuộn để xem thêm.");
         }
@@ -203,14 +241,14 @@ namespace MiningSimulator.Ores
         {
             var rect=Rect(en.Length>0?en:"Value",parent,size);rect.anchoredPosition=position;
             var label=rect.gameObject.AddComponent<TextMeshProUGUI>();label.font=font;label.fontSize=fontSize;
-            label.color=new Color32(59,44,36,255);label.alignment=TextAlignmentOptions.MidlineLeft;
+            label.color=survivorTheme ? survivorTheme.ink : new Color32(59,44,36,255);label.alignment=TextAlignmentOptions.MidlineLeft;
             label.raycastTarget=false;
             Action localize=()=>label.text=MiningLocalization.Text(en,vi);localizers.Add(localize);localize();return label;
         }
         private UnityEngine.UI.Button Button(Transform parent,string en,string vi,Vector2 position,Vector2 size,Action click)
         {
             var rect=Rect(en.Length>0?en:"Value Button",parent,size);rect.anchoredPosition=position;
-            var image=rect.gameObject.AddComponent<UnityEngine.UI.Image>();image.color=new Color32(255,210,83,255);
+            var image=rect.gameObject.AddComponent<UnityEngine.UI.Image>();image.color=survivorTheme ? survivorTheme.card : new Color32(255,210,83,255);
             image.sprite=buttonSprite;image.type=UnityEngine.UI.Image.Type.Sliced;
             var button=rect.gameObject.AddComponent<UnityEngine.UI.Button>();button.targetGraphic=image;
             button.onClick.AddListener(()=>click());

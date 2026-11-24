@@ -1,6 +1,6 @@
 Shader "Survivor/Experimental/CrowdVAT"
 {
- Properties { _BaseMap("Texture",2D)="white"{} _PositionTex("Positions",2D)="black"{} _NormalTex("Normals",2D)="black"{} }
+ Properties { _BaseMap("Texture",2D)="white"{} _PositionTex("Positions",2D)="black"{} _NormalTex("Normals",2D)="black"{} _VatRowsPerFrame("Rows per pose", Float)=1 }
  SubShader {
  Tags {"RenderPipeline"="UniversalPipeline" "RenderType"="Opaque" "Queue"="Geometry"}
  HLSLINCLUDE
@@ -8,6 +8,8 @@ Shader "Survivor/Experimental/CrowdVAT"
  #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
  TEXTURE2D(_BaseMap); SAMPLER(sampler_BaseMap);
  Texture2D<float4> _PositionTex; Texture2D<float4> _NormalTex;
+ float4 _PositionTex_TexelSize;
+ float _VatRowsPerFrame;
  UNITY_INSTANCING_BUFFER_START(Props)
  UNITY_DEFINE_INSTANCED_PROP(float4,_AnimData)
  UNITY_DEFINE_INSTANCED_PROP(float4,_Tint)
@@ -52,8 +54,13 @@ Shader "Survivor/Experimental/CrowdVAT"
  int count=max(1,(int)abs(d.y));
  float time=_Time.y*d.w+d.z;float f=(d.y<0?clamp(time,0,.99999):frac(time))*count;
  int frame=(int)floor(f);int next=frame+1<count?frame+1:(d.y<0?count-1:0);int id=(int)a.index.x;
- p=lerp(_PositionTex.Load(int3(id,(int)d.x+frame,0)).xyz,_PositionTex.Load(int3(id,(int)d.x+next,0)).xyz,frac(f));
- n=lerp(_NormalTex.Load(int3(id,(int)d.x+frame,0)).xyz,_NormalTex.Load(int3(id,(int)d.x+next,0)).xyz,frac(f));
+ int width=max(1,(int)_PositionTex_TexelSize.z);
+ int rows=max(1,(int)_VatRowsPerFrame);
+ int x=id%width, y=id/width;
+ int3 first=int3(x,((int)d.x+frame)*rows+y,0);
+ int3 second=int3(x,((int)d.x+next)*rows+y,0);
+ p=lerp(_PositionTex.Load(first).xyz,_PositionTex.Load(second).xyz,frac(f));
+ n=lerp(_NormalTex.Load(first).xyz,_NormalTex.Load(second).xyz,frac(f));
  }
  ENDHLSL
  Pass {

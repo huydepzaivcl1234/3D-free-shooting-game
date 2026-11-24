@@ -434,7 +434,7 @@ namespace MiningSimulator.Ores
             for (int index = 0; index < count; index++)
             {
                 if (!data.TryRollWheelReward(out int rewardIndex,
-                        out MiningShopWheelReward reward))
+                        out MiningShopWheelReward reward, !wallet.GoldFromQuestsOnly))
                 {
                     rolledRewards.Clear();
                     rolledRewardIndices.Clear();

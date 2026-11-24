@@ -7,6 +7,8 @@ namespace MiningSimulator.Ores
     public sealed partial class MonsterSpawnZone
     {
         private float overtimeCredit;
+        private float? pendingOvertimeMusicPosition;
+        private AudioClip FirstOvertimeTrack => UsesStageDirector && CurrentStage == 1 ? spawnSettings.firstOvertimeTrack : null;
         private Canvas stageCanvas;
         private TMP_Text stageTimer, shrinePrompt;
         private Camera stageCamera;

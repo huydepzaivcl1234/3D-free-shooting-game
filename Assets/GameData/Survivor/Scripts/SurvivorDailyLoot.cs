@@ -16,6 +16,7 @@ namespace GameData.Player.Script
         private int interactionFrame = -1;
         private MapFeaturePopulator mapFeatures;
         private float retryAt;
+        private int startupSlot;
         private bool saveBlocked;
         private const string Key="Survivor.DailyLoot.v1";
         [Serializable] private sealed class BoxProgress {public bool shiny,collected,bonus;public SurvivorLootBox.SavedBox runtime;}
@@ -56,11 +57,11 @@ namespace GameData.Player.Script
             wallet = cards && cards.Player ? cards.Player.GetComponent<PlayerWallet>() : null;
             if (!wallet) wallet = FindAnyObjectByType<PlayerWallet>();
             SurvivorAbilityLoot.Attach(this);
-            RefreshMorning();
+            if (Time.timeScale > 0f) RefreshMorning();
         }
         private void Update()
         {
-            if (!saveBlocked && Time.time >= retryAt &&
+            if (!saveBlocked && Time.timeScale > 0f && Time.time >= retryAt &&
                 (progress.version < 4 || !CollectedToday || !progress.exhaustionRolled)) RefreshMorning();
 
             if (UnityEngine.InputSystem.Keyboard.current?.eKey.wasPressedThisFrame != true) return;
@@ -112,9 +113,19 @@ namespace GameData.Player.Script
         private void Save(){GameSave.SetString(Key,JsonUtility.ToJson(progress));GameSave.Save();}
         private void ClearBoxes(){foreach(var box in boxes)if(box){box.gameObject.SetActive(false);Destroy(box.gameObject);}boxes.Clear();}
         public void ResetProgress(){GameSave.DeleteKey(Key);progress=new();saveBlocked=false;ClearBoxes();retryAt=0;}
-        public bool RefreshMorning()
+        public bool RefreshMorning() => RefreshMorning(false);
+
+        internal bool PrepareStartupStep()
         {
-            if (RunCheckpoint.IsRestoring || (progress.day < 0 && Time.timeScale <= 0)) return false;
+            if (!isActiveAndEnabled || saveBlocked || !data || !data.prefab || !clock || !cards || !cards.Player)
+                return true;
+            RefreshMorning(true);
+            return startupSlot >= progress.boxes.Count;
+        }
+
+        private bool RefreshMorning(bool preparingStartup)
+        {
+            if (RunCheckpoint.IsRestoring || (!preparingStartup && Time.timeScale <= 0f)) return false;
             retryAt = Time.time + 2;
             if (saveBlocked || !data || !data.prefab || !clock || !cards || !cards.Player) return false;
 
@@ -161,8 +172,11 @@ namespace GameData.Player.Script
             var terrain = rule ? mapFeatures.Arena : null;
             Vector3 densityOrigin = terrain?.Center ?? progress.origin;
             int densityCount = -1;
-            for (int i = 0; i < progress.boxes.Count; i++)
+            int first = preparingStartup ? startupSlot : 0;
+            int end = preparingStartup ? Mathf.Min(first + 1, progress.boxes.Count) : progress.boxes.Count;
+            for (int i = first; i < end; i++)
             {
+                if (preparingStartup) startupSlot = i + 1;
                 var record = progress.boxes[i];
                 if (record.collected || boxes[i]) continue;
                 if (densityCount < 0)
@@ -191,7 +205,7 @@ namespace GameData.Player.Script
                     }
                     correctSavedPosition = record.runtime.falling || (savedPosition - point).sqrMagnitude > .000001f;
                 }
-                else if (Time.timeScale <= 0 || !TryFindPosition(i, densityOrigin, densityCount, out point))
+                else if (!TryFindPosition(i, densityOrigin, densityCount, out point))
                     continue;
 
                 SpawnBox(i, point);

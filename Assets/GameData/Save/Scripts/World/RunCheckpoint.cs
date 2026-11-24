@@ -112,8 +112,10 @@ namespace MiningSimulator.Ores
                 if(h.TryGetComponent<PotionMonsterAbility>(out var potionAbility))potionAbility.RestoreHeldVisuals();h.RestoreEffectVisuals();if(h.TryGetComponent<PotionPlayerEffect>(out var potionStatus))potionStatus.RestoreVisuals();
                 if(a.camera&&h.TryGetComponent<TopDownSurvivor>(out var view)&&view.viewCamera){view.viewCamera.transform.SetPositionAndRotation(a.cameraPosition,a.cameraRotation);view.viewCamera.fieldOfView=a.cameraFov;}
                 if(!a.ragdoll)foreach(var saved in a.animations){var t=At(h.transform,saved.path);var animator=t?t.GetComponent<Animator>():null;if(!animator||!animator.runtimeAnimatorController||saved.hash==0||!animator.HasState(saved.layer,saved.hash))continue;animator.speed=saved.speed;animator.SetLayerWeight(saved.layer,saved.weight);animator.Play(saved.hash,saved.layer,saved.time);if(saved.next!=0&&animator.HasState(saved.layer,saved.next))animator.CrossFade(saved.next,saved.duration,saved.layer,saved.nextTime,saved.transition);animator.Update(0);}
+                if (h == player && h.TryGetComponent<PlayerRespawn>(out var respawn))
+                    respawn.RestoreCheckpointDeath();
                 if(a.ragdoll&&h.TryGetComponent<PlayerRagdoll>(out var ragdoll)){
-                    var respawn=h.GetComponent<PlayerRespawn>();if(respawn)typeof(PlayerRespawn).GetMethod("HandleDeath",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic).Invoke(respawn,null);else ragdoll.Activate();
+                    if (!ragdoll.IsRagdoll) ragdoll.Activate();
                     // Pose samples from another skeleton can tear the skin even when bone names match.
                     if (a.ragdollRig == ragdoll.PoseRig ||
                         (string.IsNullOrEmpty(a.ragdollRig) && ragdoll.PoseRig == "Y BotAvatar"))

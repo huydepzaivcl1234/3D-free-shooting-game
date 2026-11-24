@@ -16,7 +16,8 @@ namespace MiningSimulator.Ores
         PurchaseNpc = 1,
         Rebirth = 2,
         KillMonster = 3,
-        KillBoss = 4
+        KillBoss = 4,
+        CollectXp = 5
     }
 
     public enum QuestMonsterSpecies { None, Mushroom, Golem, Bat, Mushranon, ForestGolem, Skullclaw }
@@ -76,8 +77,8 @@ namespace MiningSimulator.Ores
             Mathf.Max(randomMoneyMinimum, randomMoneyMaximum));
         public QuestDifficulty Difficulty => difficulty;
         public bool IsValid => !string.IsNullOrWhiteSpace(QuestId) &&
-            (objective == MiningQuestObjective.Rebirth || objective == MiningQuestObjective.KillBoss ||
-             objective == MiningQuestObjective.KillMonster && species != QuestMonsterSpecies.None);
+            (objective is MiningQuestObjective.Rebirth or MiningQuestObjective.KillBoss or
+             MiningQuestObjective.KillMonster or MiningQuestObjective.CollectXp);
 
         public bool MatchesKill(MonsterRewardData monster, bool boss)
         {
@@ -85,6 +86,7 @@ namespace MiningSimulator.Ores
             if (objective != MiningQuestObjective.KillMonster || monster == null) return false;
             return species switch
             {
+                QuestMonsterSpecies.None => true,
                 QuestMonsterSpecies.Mushroom => monster is MushroomData,
                 QuestMonsterSpecies.Golem => monster is GolemData,
                 QuestMonsterSpecies.Bat => monster is BatData,
@@ -97,19 +99,20 @@ namespace MiningSimulator.Ores
 
         public string GetLocalizedName()
         {
-            return MiningLocalization.Text(
-                string.IsNullOrWhiteSpace(englishName) ? QuestId : englishName,
-                string.IsNullOrWhiteSpace(vietnameseName) ? englishName : vietnameseName)
+            string english = string.IsNullOrWhiteSpace(englishName) ? QuestId : englishName;
+            string fallback = MiningLocalization.IsEnglish || string.IsNullOrWhiteSpace(vietnameseName)
+                ? english : vietnameseName;
+            return MiningLocalization.TextKey("QUEST_NAME_" + QuestId, fallback)
                 .Replace("{0}", TargetAmount.ToString());
         }
 
         public string GetRewardPreview()
         {
             return rewardType == MiningQuestRewardType.RandomMoney
-                ? string.Format(MiningLocalization.Text("{0} - {1} MONEY"),
+                ? string.Format(MiningLocalization.TextKey("QUEST_REWARD_GOLD_RANGE", "{0} - {1} GOLD"),
                     MiningMoneyFormatter.Format(RandomMoneyMinimum),
                     MiningMoneyFormatter.Format(RandomMoneyMaximum))
-                : string.Format(MiningLocalization.Text("{0} MONEY"),
+                : string.Format(MiningLocalization.TextKey("QUEST_REWARD_GOLD", "{0} GOLD"),
                     MiningMoneyFormatter.Format(MoneyReward));
         }
 
@@ -142,6 +145,10 @@ namespace MiningSimulator.Ores
     public sealed class MiningQuestData : ScriptableObject
     {
         [SerializeField] private string saveKey = "MiningSimulator.Quests.v1";
+        [Header("Reset schedule (local time)")]
+        [Range(0, 23), SerializeField] private int dailyResetHour;
+        [SerializeField] private DayOfWeek weeklyResetDay = DayOfWeek.Monday;
+        [Range(0, 23), SerializeField] private int weeklyResetHour;
         [SerializeField] private List<MiningQuestDefinition> quests = new()
         {
             new MiningQuestDefinition("weekly_rebirth_1", MiningQuestPeriod.Weekly,
@@ -154,6 +161,15 @@ namespace MiningSimulator.Ores
             : saveKey.Trim();
         public IReadOnlyList<MiningQuestDefinition> Quests => quests ??
             (IReadOnlyList<MiningQuestDefinition>)Array.Empty<MiningQuestDefinition>();
+
+        internal DateTime PeriodStart(MiningQuestPeriod period, DateTime now)
+        {
+            int hour = period == MiningQuestPeriod.Daily ? dailyResetHour : weeklyResetHour;
+            var start = now.AddHours(-hour).Date.AddHours(hour);
+            if (period == MiningQuestPeriod.Daily) return start;
+            int daysSinceReset = ((int)start.DayOfWeek - (int)weeklyResetDay + 7) % 7;
+            return start.AddDays(-daysSinceReset);
+        }
 
         public MiningQuestDefinition GetDefinition(string questId)
         {

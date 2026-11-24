@@ -10,10 +10,15 @@ namespace MiningSimulator.Ores
     internal sealed class RustUpgradeLayout : MonoBehaviour
     {
         private const float Width = 1440f, Height = 810f;
-        internal static readonly Color Teal = C(0x3DE6D2);
-        private static readonly Color Back = C(0x0E0C0B), Panel = C(0x171412), Tray = C(0x100E0C);
-        private static readonly Color Card = C(0x201C19), Well = C(0x2C2723), Line = C(0x3B3029);
-        private static readonly Color Ink = C(0xF1E3CB), Muted = C(0xB8AFA3), Shadow = C(0x090706);
+        private static UIStyle sharedStyle;
+        private static Color Teal => sharedStyle ? sharedStyle.accent : C(0x3DE6D2);
+        private static Color Panel => sharedStyle ? sharedStyle.panel : C(0x171412);
+        private static Color Tray => sharedStyle ? sharedStyle.tray : C(0x100E0C);
+        private static Color Card => sharedStyle ? sharedStyle.card : C(0x201C19);
+        private static Color Well => sharedStyle ? sharedStyle.slot : C(0x2C2723);
+        private static Color Ink => sharedStyle ? sharedStyle.ink : C(0xF1E3CB);
+        private static Color Muted => sharedStyle ? sharedStyle.muted : C(0xB8AFA3);
+        private static readonly Color Back = C(0x0E0C0B), Line = C(0x3B3029), Shadow = C(0x090706);
         private static readonly Color ButtonFill = C(0x2C2520), ButtonEdge = C(0x584A3E);
         private static readonly Color[] Rarity = { C(0x8A97A6), C(0x4FA36E), C(0x4C86D6), C(0x9B6BD1), C(0xD9A441) };
         private static readonly int[] RarityTagWidths = { 73, 94, 49, 47, 91 };
@@ -21,16 +26,26 @@ namespace MiningSimulator.Ores
         private RectTransform design;
         private TMP_FontAsset body, pixel;
         private Texture2D dither, hazard;
+        private bool ownsPixelFont;
         private readonly UpgradeCardView[] cards = new UpgradeCardView[3];
         private bool descriptionsDirty;
 
         internal void Build(UpgradePanelView view, TMP_FontAsset fallback, Material backdrop)
         {
             if (design) return;
-            body = Resources.Load<TMP_FontAsset>("SurvivorRoboto");
+            sharedStyle = UIStyle.Shared;
+            body = sharedStyle ? sharedStyle.bodyFont : Resources.Load<TMP_FontAsset>("SurvivorRoboto");
             if (!body) body = fallback;
-            var font = Resources.Load<Font>("SurvivorPixelify");
-            if (font) pixel = TMP_FontAsset.CreateFontAsset(font);
+            if (sharedStyle) pixel = sharedStyle.Pixel;
+            else
+            {
+                var font = Resources.Load<Font>("SurvivorPixelify");
+                if (font)
+                {
+                    pixel = TMP_FontAsset.CreateFontAsset(font);
+                    ownsPixelFont = true;
+                }
+            }
 
             var root = (RectTransform)transform;
             foreach (Transform child in root) child.gameObject.SetActive(false);
@@ -403,7 +418,7 @@ namespace MiningSimulator.Ores
         {
             if (dither) Destroy(dither);
             if (hazard) Destroy(hazard);
-            if (!pixel) return;
+            if (!ownsPixelFont || !pixel) return;
             foreach (var atlas in pixel.atlasTextures) if (atlas) Destroy(atlas);
             if (pixel.material) Destroy(pixel.material);
             Destroy(pixel);

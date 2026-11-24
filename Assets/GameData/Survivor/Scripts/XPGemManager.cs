@@ -9,6 +9,8 @@ namespace MiningSimulator.Ores
     [DefaultExecutionOrder(10001), DisallowMultipleComponent, RequireComponent(typeof(PlayerStats))]
     public sealed class XPGemManager : MonoBehaviour
     {
+        internal static event Action<float> XpCollected;
+
         internal const int Capacity = 300;
         private const float Hover = .42f;
         private const float PickupRadius = .8f;
@@ -122,7 +124,11 @@ namespace MiningSimulator.Ores
                 collected += gem.xp;
                 gem = gems[--count];
             }
-            if (collected > 0f) stats.AddExperience(collected);
+            if (collected > 0f)
+            {
+                stats.AddExperience(collected);
+                XpCollected?.Invoke(collected);
+            }
         }
 
         private static void UpdateTrail(ref Gem gem, Vector3 previous, float dt)

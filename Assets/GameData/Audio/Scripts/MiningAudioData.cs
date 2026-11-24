@@ -71,6 +71,10 @@ namespace MiningSimulator.Ores
 
         [Header("UI SFX")]
         [SerializeField] private AudioClip buttonClickSfx;
+        [SerializeField] private AudioClip mainMenuHoverSfx;
+        [SerializeField] private AudioClip mainMenuClickSfx;
+        internal AudioClip MainMenuHoverSfx => mainMenuHoverSfx;
+        internal AudioClip MainMenuClickSfx => mainMenuClickSfx;
         [SerializeField] private AudioClip panelOpenSfx;
         [SerializeField] private AudioClip panelCloseSfx;
         [Tooltip("Optional. Falls back to Ore Hit SFX when empty.")]

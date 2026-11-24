@@ -1,0 +1,21 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fad206f73a0fe8c47ad00e1b8fe6e250, type: 3}
+  m_Name: CapsuleBoy Skin Catalog
+  m_EditorClassIdentifier: Assembly-CSharp::MiningSimulator.Ores.CharacterSkinCatalog
+  skins:
+  - {fileID: 11400000, guid: b25189ff99d6d8b40acd8ca5b067b6de, type: 2}
+  - {fileID: 11400000, guid: 2a2d6ada7977cd44296f327254e42d6c, type: 2}
+  - {fileID: 11400000, guid: cd633680be90067468fefacb3e6c9919, type: 2}
+  - {fileID: 11400000, guid: b8a54b031b7fc834e8d81f33fe97f58f, type: 2}
+  - {fileID: 11400000, guid: e6dba9594c5b2ba48aa687c35c31d90c, type: 2}
+  - {fileID: 11400000, guid: 0a8e9e6408a1c824083eb62c20721591, type: 2}

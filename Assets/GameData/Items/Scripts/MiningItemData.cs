@@ -219,13 +219,19 @@ namespace MiningSimulator.Ores
                 : $"{ShortEffectName} +{effectPercent:0.##}%";
         }
 
-        public bool TryRollGiftReward(out int rewardIndex,out MiningGiftReward reward)
+        public bool TryRollGiftReward(out int rewardIndex,out MiningGiftReward reward, bool includeMoney = true)
         {
             reward=null;
-            if(!SequentialRarity.TryRoll(giftRewards,giftRarityChances,r=>r!=null?r.Rarity:MiningItemRarity.Common,r=>r!=null&&r.IsValid?r.Weight:0,out rewardIndex))return false;
+            if(!SequentialRarity.TryRoll(giftRewards,giftRarityChances,r=>r!=null?r.Rarity:MiningItemRarity.Common,r => GiftWeight(r, includeMoney), out rewardIndex))return false;
             reward=giftRewards[rewardIndex];return true;
         }
-        public float GetGiftRewardDisplayPercent(MiningGiftReward reward)=>SequentialRarity.DisplayPercent(giftRewards,giftRarityChances,r=>r!=null?r.Rarity:MiningItemRarity.Common,r=>r!=null&&r.IsValid?r.Weight:0,giftRewards.IndexOf(reward));
+        public float GetGiftRewardDisplayPercent(MiningGiftReward reward, bool includeMoney = true) =>
+            SequentialRarity.DisplayPercent(giftRewards, giftRarityChances, r => r?.Rarity ?? MiningItemRarity.Common,
+                r => GiftWeight(r, includeMoney), giftRewards.IndexOf(reward));
+
+        private static float GiftWeight(MiningGiftReward reward, bool includeMoney) =>
+            reward != null && reward.IsValid && (includeMoney || reward.RewardType != MiningGiftRewardType.Money)
+                ? reward.Weight : 0f;
 
         private void OnValidate()
         {

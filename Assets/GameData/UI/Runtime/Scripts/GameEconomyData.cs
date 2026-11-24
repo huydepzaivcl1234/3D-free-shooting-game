@@ -16,6 +16,16 @@ namespace MiningSimulator.Ores
         [FormerlySerializedAs("moneyCountMaximumDuration")]
         [Min(0.05f), SerializeField] private float currencyCountMaximumDuration = 1.25f;
 
+        [Header("Gold rewards")]
+        [Tooltip("Restrict legacy chest and wheel Gold rewards. Monster kills are configured separately.")]
+        [SerializeField] private bool goldFromQuestsOnly;
+
+        [Tooltip("Give the player the configured monster Gold reward on a kill.")]
+        [SerializeField] private bool goldFromMonsterKills = true;
+
+        public bool GoldFromQuestsOnly => goldFromQuestsOnly;
+        public bool GoldFromMonsterKills => goldFromMonsterKills;
+
         [Header("Gem")]
         [Tooltip("Gem balance used for a player who has no saved Gem data yet.")]
         [Min(0f), SerializeField] private float startingGems;

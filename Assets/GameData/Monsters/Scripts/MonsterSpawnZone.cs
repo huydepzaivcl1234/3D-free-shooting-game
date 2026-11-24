@@ -351,7 +351,7 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
             if (data == null) return;
             var rewards=MonsterLootSettings.RewardsFor(data);
             float xp = Mathf.Max(0, rewards.experience) * Mathf.Max(0f, experienceMultiplier);
-            float money = Mathf.Max(0, rewards.gold) * Mathf.Max(0f, goldMultiplier) * rewards.GoldMultiplier(monsterLevel);
+            float money = wallet && (!wallet.GameData || wallet.GameData.GoldFromMonsterKills) ? Mathf.Max(0, rewards.gold) * Mathf.Max(0f, goldMultiplier) * rewards.GoldMultiplier(monsterLevel) : 0f;
             if (upgradeSystem != null)
             {
                 xp = upgradeSystem.CalculatePlayerExperienceReward(xp);
@@ -362,7 +362,7 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
                 if (Application.isPlaying && PlayerHuntMode) XPGemManager.For(playerStats).Drop(origin, xp);
                 else playerStats.AddExperience(xp);
             }
-            if (wallet != null)
+            if (wallet != null && money > 0f)
             {
                 float previousMoney = wallet.CurrentMoney;
                 wallet.AddMoney(money);
@@ -486,7 +486,14 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
         private void Update()
         {
             if(restoringWorld)return;
-            if (!RunCheckpoint.IsRestoring) questNpcEncounter?.Tick();
+            if (!RunCheckpoint.IsRestoring)
+            {
+                questNpcEncounter?.Tick();
+                if (Time.deltaTime > 0f && !RuneStation.PlayerUsesRuneTime &&
+                    pendingOvertimeMusicPosition is float position && FirstOvertimeTrack is { } music && music &&
+                    audioManager && audioManager.PlayOvertimeIntro(music, position))
+                    pendingOvertimeMusicPosition = null;
+            }
             CheckMonsterUnlocks();
             if (alive.RemoveAll(RemoveInactiveMonster) > 0) ForecastChanged?.Invoke();
             if (DebugSpawningPaused) return;
@@ -501,9 +508,9 @@ public bool TryGetPatrolPoint(Vector3 origin,out Vector3 point)
             if (PlayerHuntMode && IsOvertime)
             {
                 pendingStageSpawns = 0;
-                if (UsesStageDirector && CurrentStage == 1 && previousElapsed < CurrentStageDuration &&
-                    spawnSettings.firstOvertimeTrack)
-                    FindAnyObjectByType<MiningAudioManager>()?.PlayOvertimeIntro(spawnSettings.firstOvertimeTrack);
+                var track = FirstOvertimeTrack;
+                if (track && previousElapsed < CurrentStageDuration)
+                    pendingOvertimeMusicPosition = 0f;
                 TickOvertime(Time.deltaTime);
                 return;
             }
@@ -840,6 +847,7 @@ public void ResetEncounter()
             ClearSupportAllies();
             if(alune)alune.Clear();
             spawnElapsedSeconds=0;spawnCredit=0;overtimeCredit=0;nextTimedRetry=0;spawnKills=0;initialMonsterSpawned=false;
+            pendingOvertimeMusicPosition = null;
             lastKnownSpawnDay=SpawnDayNumber;
             ResetGodEncounter();
             questNpcEncounter?.Reset();

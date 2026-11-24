@@ -42,6 +42,84 @@ namespace MiningSimulator.Ores
         private PlayerGraphicsOptions graphicsOptions;
         private PlayerGraphicsPanel graphicsPanel;
 
+        private UIStyle survivorTheme;
+
+        internal void ApplySurvivorTheme(UIStyle theme, Sprite bevel)
+        {
+            if (!settingsPanel || !theme || !bevel || survivorTheme == theme) return;
+            survivorTheme = theme;
+            var root = settingsPanel.transform;
+            SetSurface(settingsPanel.GetComponent<Image>(), theme.panel);
+            foreach (Transform child in root)
+            {
+                if (child.name.StartsWith("Rivet_", StringComparison.Ordinal) || child.name == "Stitched_Seam")
+                    child.gameObject.SetActive(false);
+                else if (child.name.StartsWith("Value Badge", StringComparison.Ordinal))
+                    SetSurface(child.GetComponent<Image>(), theme.slot);
+                else if (child.name == "Design Gear" && child.TryGetComponent<Image>(out var gear))
+                    gear.color = theme.accent;
+            }
+
+            if (root.Find("Controls Panel") is { } controls)
+                SetSurface(controls.GetComponent<Image>(), theme.panel);
+
+            foreach (var label in settingsPanel.GetComponentsInChildren<TextMeshProUGUI>(true))
+            {
+                label.font = theme.Pixel;
+                label.color = label.name.EndsWith(" Hint", StringComparison.Ordinal) ? theme.muted : theme.ink;
+                label.fontStyle = FontStyles.Normal;
+                bool title = label.name == "Design Settings Title";
+                if (title || label.transform.parent == root && label.name.EndsWith(" Label", StringComparison.Ordinal))
+                {
+                    label.enableAutoSizing = true;
+                    label.fontSizeMin = title ? 24f : 14f;
+                    label.fontSizeMax = title ? 36f : 21f;
+                }
+            }
+            foreach (var button in settingsPanel.GetComponentsInChildren<Button>(true))
+            {
+                if (button.targetGraphic is Image face)
+                    SetSurface(face, button == resetDataButton ? new Color32(133, 52, 62, 255) : theme.card);
+                foreach (var image in button.GetComponentsInChildren<Image>(true))
+                    if (image != button.targetGraphic && image.gameObject.name.Contains("pressed", StringComparison.OrdinalIgnoreCase))
+                    {
+                        image.sprite = bevel;
+                        image.type = Image.Type.Sliced;
+                        image.color = theme.tray;
+                    }
+            }
+
+            foreach (var slider in new[] { masterSlider, musicSlider, sfxSlider, sensitivitySlider })
+            {
+                if (!slider) continue;
+                SetSurface(slider.transform.Find("Background")?.GetComponent<Image>(), theme.slot);
+                if (slider.fillRect) SetSurface(slider.fillRect.GetComponent<Image>(), theme.edge);
+                if (slider.handleRect) SetSurface(slider.handleRect.GetComponent<Image>(), theme.accent);
+            }
+
+            graphicsPanel?.ApplySurvivorTheme(theme, bevel);
+            ApplyLanguage();
+
+            void SetSurface(Image image, Color color)
+            {
+                if (!image) return;
+                image.sprite = bevel;
+                image.type = Image.Type.Sliced;
+                image.color = color;
+            }
+        }
+
+        private void PositionSurvivorSettings()
+        {
+            if (!survivorTheme || !(settingsPanel.transform is RectTransform panel) ||
+                !(panel.parent is RectTransform parent)) return;
+            float scale = Mathf.Min(1f, (parent.rect.height - 48f) / panel.rect.height,
+                (parent.rect.width - 48f) / panel.rect.width);
+            panel.localScale = Vector3.one * Mathf.Max(.1f, scale);
+            float available = Mathf.Max(0f, (parent.rect.width - panel.rect.width * panel.localScale.x) * .5f - 38f);
+            panel.anchoredPosition = new Vector2(-Mathf.Min(available, parent.rect.width * .245f), 0f);
+        }
+
         public event Action PanelOpened;
         public event Action PanelClosed;
 
@@ -116,6 +194,13 @@ namespace MiningSimulator.Ores
             ResetButtonState();
         }
 
+        internal void CloseFromMenu()
+        {
+            if (graphicsPanel && graphicsPanel.IsOpen) { graphicsPanel.Close(); return; }
+            if (TryGetComponent<MiningKeybindSettings>(out var controls) && controls.TryClosePage()) return;
+            ClosePanel();
+        }
+
         public void OpenPanel()
         {
             ApplyLanguage();
@@ -130,6 +215,8 @@ namespace MiningSimulator.Ores
             {
                 settingsPanel?.SetActive(true);
             }
+            PositionSurvivorSettings();
+            UnityEngine.EventSystems.EventSystem.current?.SetSelectedGameObject(closeButton ? closeButton.gameObject : null);
             PanelOpened?.Invoke();
         }
 
@@ -226,7 +313,7 @@ namespace MiningSimulator.Ores
             if (!resetConfirmationArmed)
             {
                 resetConfirmationArmed = true;
-                SetResetButtonVisual(MiningLocalization.Text("CLICK AGAIN TO DELETE"),
+                SetResetButtonVisual(MiningLocalization.TextKey("SETTINGS_RESET_CONFIRM", "PRESS AGAIN TO DELETE"),
                     uiData != null ? uiData.ResetDataArmedColor : new Color(1f, 0.36f, 0.08f));
                 if (resetStateCoroutine != null)
                 {
@@ -244,7 +331,7 @@ namespace MiningSimulator.Ores
             resetConfirmationArmed = false;
             if (!WorldProgressReset.ResetAll())
             {
-                SetResetButtonVisual("RESET FAILED — CHECK CONSOLE", Color.red);
+                SetResetButtonVisual(MiningLocalization.TextKey("SETTINGS_RESET_FAILED", "RESET FAILED"), Color.red);
                 return;
             }
             SetResetButtonVisual(MiningLocalization.Text("DATA RESET"),
@@ -270,7 +357,7 @@ namespace MiningSimulator.Ores
         private void ResetButtonState()
         {
             resetConfirmationArmed = false;
-            SetResetButtonVisual(flatDesign ? MiningLocalization.Text("RESET", "XÓA") : MiningLocalization.Text("RESET DATA"),
+            SetResetButtonVisual(flatDesign ? MiningLocalization.TextKey("SETTINGS_RESET_BUTTON", "RESET") : MiningLocalization.Text("RESET DATA"),
                 uiData != null ? uiData.ResetDataButtonColor : new Color(0.88f, 0.12f, 0.18f));
         }
 
@@ -282,7 +369,8 @@ namespace MiningSimulator.Ores
             }
             if (resetDataButton != null && resetDataButton.targetGraphic is Image image)
             {
-                image.color = color;
+                image.color = survivorTheme ? (resetConfirmationArmed
+                    ? new Color32(156, 89, 45, 255) : new Color32(133, 52, 62, 255)) : color;
             }
         }
 
@@ -498,11 +586,13 @@ namespace MiningSimulator.Ores
                 SetLocalizedChildText(root, "Design Settings Title", "SETTINGS", "CÀI ĐẶT");
                 SetLocalizedChildText(root, "Language Caption", "LANGUAGE", "NGÔN NGỮ");
                 SetLocalizedChildText(root, "Language Hint", "Change interface language", "Đổi ngôn ngữ giao diện");
-                SetLocalizedChildText(root, "Reset Caption", "RESET DATA", "XÓA DỮ LIỆU");
+                SetLocalizedChildText(root, "Reset Caption", "ERASE SAVED PROGRESS", "XÓA TIẾN TRÌNH");
                 SetLocalizedChildText(root, "Reset Hint", "Erase saved progress", "Xóa tiến trình đã lưu");
                 SetLocalizedChildText(root, "Design Controls", "CONTROLS", "ĐIỀU KHIỂN");
-                if (englishButton != null) englishButton.targetGraphic.color = MiningLocalization.IsEnglish ? new Color32(255,210,83,255) : Color.white;
-                if (vietnameseButton != null) vietnameseButton.targetGraphic.color = !MiningLocalization.IsEnglish ? new Color32(255,210,83,255) : Color.white;
+                Color on = survivorTheme ? survivorTheme.edge : new Color32(255, 210, 83, 255);
+                Color off = survivorTheme ? survivorTheme.card : Color.white;
+                if (englishButton != null) englishButton.targetGraphic.color = MiningLocalization.IsEnglish ? on : off;
+                if (vietnameseButton != null) vietnameseButton.targetGraphic.color = !MiningLocalization.IsEnglish ? on : off;
             }
         }
 

@@ -6,7 +6,7 @@ namespace MiningSimulator.Ores
     /// <summary>Owns runtime upgrade stacks, purchases, and mining modifiers.</summary>
     [DisallowMultipleComponent]
     [UnityEngine.Scripting.APIUpdating.MovedFrom(true,"MiningSimulator.Ores","Assembly-CSharp","MiningUpgradeSystem")]
-    public sealed partial class EconomyUpgradeSystem : MonoBehaviour
+    public sealed class EconomyUpgradeSystem : MonoBehaviour
     {
         [SerializeField] private PlayerWallet wallet;
         [SerializeField] private EconomyUpgradeData upgradeData;
@@ -35,7 +35,6 @@ namespace MiningSimulator.Ores
 
         private void Awake()
         {
-            LoadAutoUpgrade();
             if (itemSystem == null)
             {
                 itemSystem = FindFirstObjectByType<MiningItemSystem>(FindObjectsInactive.Include);
@@ -125,9 +124,7 @@ namespace MiningSimulator.Ores
             if (type == EconomyUpgradeType.RegenIntervalReduction)
                 return Mathf.Pow(1f - Mathf.Clamp(definition.PercentPerStack, 0f, 100f) * 0.01f,
                     GetStacks(type));
-            if (definition == null) return 1f;
-            float multiplier = 1f + definition.PercentPerStack * GetStacks(type) * 0.01f;
-            return multiplier;
+            return 1f + definition.PercentPerStack * GetStacks(type) * 0.01f;
         }
 
         public float GetAddedPercent(EconomyUpgradeType type)
@@ -151,18 +148,6 @@ namespace MiningSimulator.Ores
             if (baseReward <= 0f) return 0f;
             return baseReward * GetMultiplier(EconomyUpgradeType.MoneyReward) *
                 PermanentMoneyMultiplier * (itemSystem != null ? itemSystem.MoneyRewardMultiplier : 1f);
-        }
-
-        public float CalculateLuckyBlockReward(int baseReward)
-        {
-            if (baseReward <= 0)
-            {
-                return 0f;
-            }
-
-            return baseReward * GetMultiplier(EconomyUpgradeType.LuckyBlockReward) *
-                   PermanentMoneyMultiplier *
-                   (itemSystem != null ? itemSystem.MoneyRewardMultiplier : 1f);
         }
 
         public void SetPermanentMoneyMultiplier(float multiplier)

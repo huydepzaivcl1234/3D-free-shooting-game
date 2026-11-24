@@ -100,12 +100,14 @@ health.ConfigureSpawnHealth(data.MaxHealth(Level));
 private void Update()
         {
             if (!IsAlive || data == null || RuneStation.PlayerUsesRuneTime) return;
-            if (wallet != null)
+            if (wallet == null || wallet.GoldFromQuestsOnly) return;
+            payoutClock += Time.deltaTime;
+            float interval = 1f / Mathf.Max(.01f, data.ticksPerSecond);
+            int due = Mathf.Min(32, Mathf.FloorToInt(payoutClock / interval));
+            if (due > 0)
             {
-                payoutClock += Time.deltaTime;
-                float interval = 1f / Mathf.Max(.01f,data.ticksPerSecond);
-                int due = Mathf.Min(32,Mathf.FloorToInt(payoutClock/interval));
-                if (due > 0) { payoutClock -= due*interval; pendingTicks += due; }
+                payoutClock -= due * interval;
+                pendingTicks += due;
             }
             if (!opening && pendingTicks > 0)
             {

@@ -97,6 +97,13 @@ namespace MiningSimulator.Ores
         }
         private void Update() { if (operation != null && !controlsPanel.activeInHierarchy) Cancel(); }
         private void Open() { controlsPanel.SetActive(true); controlsPanel.transform.SetAsLastSibling(); RefreshLabels(); controlsPanel.GetComponent<MiningPanelMotion>()?.PlayOpen(); }
+        internal bool TryClosePage()
+        {
+            if (!controlsPanel || !controlsPanel.activeInHierarchy) return false;
+            if (!IsRebinding) Close();
+            return true;
+        }
+
         private void Close() { Cancel(); if (controlsPanel == null) return; if (controlsPanel.activeInHierarchy && controlsPanel.TryGetComponent(out MiningPanelMotion motion)) motion.PlayClose(); else controlsPanel.SetActive(false); }
         public void BeginRebind(BindingRow row)
         {

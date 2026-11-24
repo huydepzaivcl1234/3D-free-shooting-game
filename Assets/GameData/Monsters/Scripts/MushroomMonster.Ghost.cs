@@ -23,17 +23,19 @@ namespace MiningSimulator.Ores
             _ => 1f
         };
 
+        internal Color GhostCrowdTint => ghostTier switch
+        {
+            GhostTier.Black => GhostTuning.blackColor,
+            GhostTier.Purple => GhostTuning.purpleColor,
+            GhostTier.Red => GhostTuning.redColor,
+            _ => GhostTuning.whiteColor
+        };
+
         internal void SetGhostTier(GhostTier tier)
         {
             if (!IsOvertimeGhost) return;
             ghostTier = tier;
-            var color = tier switch
-            {
-                GhostTier.Black => GhostTuning.blackColor,
-                GhostTier.Purple => GhostTuning.purpleColor,
-                GhostTier.Red => GhostTuning.redColor,
-                _ => GhostTuning.whiteColor
-            };
+            var color = GhostCrowdTint;
 
             var properties = new MaterialPropertyBlock();
             foreach (var renderer in ghostVisual.GetComponentsInChildren<Renderer>())

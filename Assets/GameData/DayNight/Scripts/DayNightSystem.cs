@@ -39,6 +39,7 @@ namespace MiningSimulator.Ores
         private float transitionToDaylight;
         private float transitionBellCurve;
         private bool initialized;
+        private bool menuLightingPaused;
         private const string ClockSaveKey = "MiningSimulator.DayNight.v1";
         private float nextClockSaveTime;
         [Serializable]
@@ -107,6 +108,8 @@ namespace MiningSimulator.Ores
 
         public event Action<MiningTimePeriod> PeriodChanged;
 
+        internal void SetMenuLightingPaused(bool paused) => menuLightingPaused = paused;
+
         private void Awake()
         {
             InitializeIfNeeded();
@@ -173,7 +176,7 @@ namespace MiningSimulator.Ores
 
         private void Update()
         {
-            if (data == null)
+            if (data == null || menuLightingPaused)
             {
                 return;
             }
@@ -194,7 +197,7 @@ namespace MiningSimulator.Ores
 
         private void LateUpdate()
         {
-            if (celestialTransform == null || sun == null)
+            if (menuLightingPaused || celestialTransform == null || sun == null)
             {
                 return;
             }
@@ -343,6 +346,7 @@ namespace MiningSimulator.Ores
 
         private void ApplyLighting(float daylightAmount)
         {
+            if (menuLightingPaused) return;
             if (data == null)
             {
                 return;

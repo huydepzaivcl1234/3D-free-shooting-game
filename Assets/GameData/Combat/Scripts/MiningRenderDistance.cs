@@ -8,6 +8,8 @@ namespace MiningSimulator.Ores
     public sealed class MiningRenderDistance : MonoBehaviour
     {
         private Camera view;
+        private TerrainGenerator terrain;
+        private Transform player;
         private float originalDistance;
         private static float playerDistance=-1;
         public static void SetPlayerDistance(float distance)=>playerDistance=distance;
@@ -27,15 +29,29 @@ namespace MiningSimulator.Ores
                 if(camera.CompareTag("MainCamera")&&!camera.GetComponent<MiningRenderDistance>())
                     camera.gameObject.AddComponent<MiningRenderDistance>();
         }
-        private void OnEnable(){view=GetComponent<Camera>();originalDistance=view.farClipPlane;LateUpdate();}
+        private void OnEnable()
+        {
+            view = GetComponent<Camera>();
+            originalDistance = view.farClipPlane;
+            terrain = FindAnyObjectByType<TerrainGenerator>();
+            var follow = FindAnyObjectByType<GameData.Player.Script.TopDownSurvivor>(FindObjectsInactive.Include);
+            player = follow ? follow.transform : null;
+            LateUpdate();
+        }
         private void LateUpdate()
         {
             var data=GameplayPerformanceData.Current;
             float requested=playerDistance>0?playerDistance:data?data.renderDistance:0;
             float distance=requested>0?Mathf.Max(view.nearClipPlane+.01f,requested):originalDistance;
             if(!Mathf.Approximately(view.farClipPlane,distance))view.farClipPlane=distance;
-            WorldActorVisibility.Cull(view, data);
+            if (terrain) terrain.UpdateBlockVisibility(requested);
+            WorldActorVisibility.Cull(view, data, player, requested);
         }
-        private void OnDisable(){if(view)view.farClipPlane=originalDistance;WorldActorVisibility.RestoreAll();}
+        private void OnDisable()
+        {
+            if (view) view.farClipPlane = originalDistance;
+            if (terrain) terrain.UpdateBlockVisibility(0f);
+            WorldActorVisibility.RestoreAll();
+        }
     }
 }

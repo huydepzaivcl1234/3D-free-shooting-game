@@ -35,3 +35,11 @@ MonoBehaviour:
   - 55
   mapHalfSize: 65
   simulateOffscreen: 1
+  useIndirectRendering: 1
+  useSpeciesCatalog: 1
+  groundCellSize: 1
+  groundSamplesPerFrame: 96
+  groundLayers:
+    serializedVersion: 2
+    m_Bits: 8
+  maximumClimbHeight: 4

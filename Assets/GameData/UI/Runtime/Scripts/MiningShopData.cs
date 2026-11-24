@@ -124,10 +124,10 @@ namespace MiningSimulator.Ores
         public int WheelSpinRotations => Mathf.Clamp(wheelSpinRotations, 1, 12);
         public IReadOnlyList<MiningShopWheelReward> WheelRewards => wheelRewards;
 
-        public bool TryRollWheelReward(out int rewardIndex,out MiningShopWheelReward reward)
+        public bool TryRollWheelReward(out int rewardIndex,out MiningShopWheelReward reward, bool includeMoney = true)
         {
             reward=null;
-            if(!SequentialRarity.TryRoll(wheelRewards,wheelRarityChances,r=>r!=null?r.Rarity:MiningItemRarity.Common,r=>r!=null&&r.IsValid?r.Weight:0,out rewardIndex))return false;
+            if(!SequentialRarity.TryRoll(wheelRewards,wheelRarityChances,r=>r!=null?r.Rarity:MiningItemRarity.Common,r => r != null && r.IsValid && (includeMoney || r.RewardType != MiningShopWheelRewardType.Money) ? r.Weight : 0, out rewardIndex))return false;
             reward=wheelRewards[rewardIndex];return true;
         }
         public float GetWheelRewardDisplayPercent(MiningShopWheelReward reward)=>SequentialRarity.DisplayPercent(wheelRewards,wheelRarityChances,r=>r!=null?r.Rarity:MiningItemRarity.Common,r=>r!=null&&r.IsValid?r.Weight:0,wheelRewards.IndexOf(reward));

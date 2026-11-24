@@ -126,7 +126,7 @@ namespace MiningSimulator.Ores
         private void StartSpin()
         {
             if (spinning || giftBox == null || itemSystem == null || wallet == null ||
-                !giftBox.TryRollGiftReward(out int rewardIndex, out MiningGiftReward reward))
+                !giftBox.TryRollGiftReward(out int rewardIndex, out MiningGiftReward reward, !wallet.GoldFromQuestsOnly))
             {
                 statusLabel.text = MiningLocalization.Text("This gift box has no valid rewards.");
                 return;
@@ -345,7 +345,7 @@ namespace MiningSimulator.Ores
                 label.alignment = TextAlignmentOptions.Center;
                 label.textWrappingMode = TextWrappingModes.Normal;
                 label.raycastTarget = false;
-                label.text = $"{reward.GetDisplayName()}\n{giftBox.GetGiftRewardDisplayPercent(reward):0.##}%";
+                label.text = $"{reward.GetDisplayName()}\n{giftBox.GetGiftRewardDisplayPercent(reward, wallet == null || !wallet.GoldFromQuestsOnly):0.##}%";
                 rewardCards.Add(labelObject);
             }
 

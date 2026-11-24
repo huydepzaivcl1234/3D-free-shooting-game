@@ -11,6 +11,7 @@ namespace MiningSimulator.Ores
         [SerializeField] private MiningAudioManager audioManager;
 
         private Button button;
+        internal bool UseMainMenuSounds { get; set; }
 
         private void Awake()
         {
@@ -37,9 +38,20 @@ namespace MiningSimulator.Ores
             button?.onClick.RemoveListener(Play);
         }
 
+        internal void PlayHover()
+        {
+            var clip = UseMainMenuSounds && audioManager && audioManager.AudioData
+                ? audioManager.AudioData.MainMenuHoverSfx : null;
+            if (clip) audioManager.PlaySfx(clip, .62f);
+            else audioManager?.PlayCardHoverSfx();
+        }
+
         private void Play()
         {
-            audioManager?.PlayButtonSfx();
+            var clip = UseMainMenuSounds && audioManager && audioManager.AudioData
+                ? audioManager.AudioData.MainMenuClickSfx : null;
+            if (clip) audioManager.PlaySfx(clip, .8f);
+            else audioManager?.PlayButtonSfx();
         }
 
         /// <summary>Allows runtime-authored buttons to use the shared SFX source immediately.</summary>

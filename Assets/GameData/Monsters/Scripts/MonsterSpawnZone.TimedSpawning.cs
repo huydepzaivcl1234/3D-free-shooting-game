@@ -23,9 +23,18 @@ namespace MiningSimulator.Ores
         public float CurrentSpawnsPerSecond => StagePhase is { } phase
             ? IsOvertime || StageRunComplete ? 0 : Mathf.Max(1, phase.batchSize) / CurrentSpawnInterval
             : initialMonsterSpawned && spawnKills == 0 ? 0 : 1f / CurrentSpawnInterval;
-        private void TickTimedSpawns(float seconds)
+        internal bool TryPrepareOpeningWave()
         {
-            if(seconds<=0||Time.time<nextTimedRetry)return;
+            if (!PlayerHuntMode || !started || restoringWorld || StageRunComplete || !player ||
+                player.Health <= 0f || initialMonsterSpawned || spawnKills > 0 || spawnElapsedSeconds > .05f || DebugSpawningPaused)
+                return true;
+            TickTimedSpawns(0f, preparingOpeningWave: true);
+            return initialMonsterSpawned;
+        }
+
+        private void TickTimedSpawns(float seconds, bool preparingOpeningWave = false)
+        {
+            if (!preparingOpeningWave && (seconds <= 0f || Time.time < nextTimedRetry)) return;
             if (StagePhase is { } phase)
             {
                 if (!IsOvertime) TickStagePhase(seconds, phase);

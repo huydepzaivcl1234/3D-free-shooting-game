@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Survivor.CrowdPrototype;
 using UnityEngine;
 
 namespace MiningSimulator.Ores
@@ -17,7 +18,8 @@ namespace MiningSimulator.Ores
         private AnimatorCullingMode[] animatorModes;
         private bool[] offscreenSkinning;
         private Bounds localBounds;
-        private bool cached, hidden, animationCulled;
+        private bool cached, hidden, animationCulled, crowdHidden, cullOffscreenPose;
+        private LiveCrowdSpeciesVisual crowdVisual;
         public bool IsVisible => !hidden;
         public bool SimulationPaused {get;private set;}
         private float pausedAt;
@@ -47,13 +49,14 @@ namespace MiningSimulator.Ores
         }
         public static void Attach(GameObject owner) { if (!owner.GetComponent<WorldActorVisibility>()) owner.AddComponent<WorldActorVisibility>(); }
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-        private static void ResetRegistry() { actors.Clear(); }
+        private static void ResetRegistry() { actors.Clear(); LiveCrowdSpeciesVisual.Reset(); }
         private void OnEnable() { if (!actors.Contains(this)) actors.Add(this); }
-        private void OnDisable() { SetHidden(false, false); actors.Remove(this); }
+        private void OnDisable() { SetCrowdHidden(false); SetHidden(false, false); actors.Remove(this); }
         private void Cache()
         {
             if (cached) return;
             cached = true;
+            crowdVisual = LiveCrowdSpeciesVisual.Bind(gameObject);
             renderers = GetComponentsInChildren<Renderer>(true);
             enabledBeforeCull = new bool[renderers.Length]; offscreenSkinning = new bool[renderers.Length];
             localBounds = new Bounds(Vector3.zero, Vector3.one * .1f);
@@ -89,19 +92,53 @@ namespace MiningSimulator.Ores
             var bounds=new Bounds(m.MultiplyPoint3x4(localBounds.center), new Vector3(Mathf.Abs(x.x) + Mathf.Abs(y.x) + Mathf.Abs(z.x), Mathf.Abs(x.y) + Mathf.Abs(y.y) + Mathf.Abs(z.y), Mathf.Abs(x.z) + Mathf.Abs(y.z) + Mathf.Abs(z.z)) * 2 + Vector3.one * padding * 2);
             return bounds;
         }
-        public static void Cull(Camera view, GameplayPerformanceData data)
+        public static void Cull(Camera view, GameplayPerformanceData data, Transform player, float renderDistance)
         {
             if (!view || !view.isActiveAndEnabled) return;
-            if (data && !data.cullOffscreenActors) { RestoreAll(); return; }
+            bool frustumCull = !data || data.cullOffscreenActors;
+            bool useCrowd = data && data.enableCrowdVisuals && LiveCrowdSpeciesVisual.Begin();
             GeometryUtility.CalculateFrustumPlanes(view, planes);
+            Vector3 playerPosition = player ? player.position : Vector3.zero;
+            float simulationRadius = data ? data.nearbySimulationRadius : 24f;
+            float simulationRadiusSquared = simulationRadius * simulationRadius;
+            float renderDistanceSquared = renderDistance * renderDistance;
             foreach (var actor in actors)
             {
                 if (!actor || !actor.isActiveAndEnabled) continue;
                 actor.Cache();
-                actor.SetHidden(!GeometryUtility.TestPlanesAABB(planes, actor.WorldBounds(data ? Mathf.Max(0, data.actorBoundsPadding) : .2f)), !data || data.cullOffscreenAnimation);
+                var bounds = actor.WorldBounds(data ? Mathf.Max(0, data.actorBoundsPadding) : .2f);
+                Vector3 nearest = bounds.ClosestPoint(new Vector3(playerPosition.x, bounds.center.y, playerPosition.z));
+                float x = playerPosition.x - nearest.x, z = playerPosition.z - nearest.z;
+                float distanceSquared = x * x + z * z;
+                bool visible = GeometryUtility.TestPlanesAABB(planes, bounds) &&
+                    (!player || renderDistance <= 0f || distanceSquared <= renderDistanceSquared);
+                bool farFromPlayer = !player || distanceSquared > simulationRadiusSquared;
+                actor.SetHidden(frustumCull && !visible, !data || data.cullOffscreenAnimation, farFromPlayer);
+                bool submitted = useCrowd && visible && actor.crowdVisual != null &&
+                    actor.crowdVisual.Submit(view, data.crowdVisualDistance, actor.crowdHidden);
+                actor.SetCrowdHidden(submitted);
             }
+            if (useCrowd) LiveCrowdSpeciesVisual.Draw(view);
         }
-        public static void RestoreAll() { foreach (var actor in actors) if (actor) actor.SetHidden(false, false); }
+
+        public static void RestoreAll()
+        {
+            foreach (var actor in actors)
+            {
+                if (!actor) continue;
+                actor.SetCrowdHidden(false);
+                actor.SetHidden(false, false);
+            }
+            LiveCrowdSpeciesVisual.DisposeBatches();
+        }
+
+        private void SetCrowdHidden(bool value)
+        {
+            if (value == crowdHidden) return;
+            crowdHidden = value;
+            crowdVisual.SetHidden(value);
+            SetAnimationCulled(value || cullOffscreenPose);
+        }
         private void SetSimulationPaused(bool paused)
         {
             if(paused==SimulationPaused)return;
@@ -123,21 +160,14 @@ namespace MiningSimulator.Ores
                 GetComponent<MonsterItemPickup>()?.ResumeVisibilityTimers(seconds);
             }
         }
-        private void SetHidden(bool value, bool cullAnimation)
+        private void SetHidden(bool value, bool cullAnimation, bool farFromPlayer = false)
         {
             if (!cached) return;
             bool persistentPursuit = TryGetComponent<MushroomMonster>(out var monster) && monster.FollowsStageDirector;
-            SetSimulationPaused(value && !persistentPursuit &&
+            SetSimulationPaused(value && farFromPlayer && !persistentPursuit &&
                 (!GameplayPerformanceData.Current || GameplayPerformanceData.Current.freezeOffscreenSimulation));
-            bool nextAnimationCulled = value && cullAnimation;
-            if (nextAnimationCulled != animationCulled)
-            {
-                for (int i = 0; i < animators.Length; i++)
-                    if (animators[i]) animators[i].cullingMode = nextAnimationCulled ? (SimulationPaused?AnimatorCullingMode.CullCompletely:AnimatorCullingMode.CullUpdateTransforms) : animatorModes[i];
-                for (int i = 0; i < renderers.Length; i++)
-                    if (renderers[i] is SkinnedMeshRenderer skin) skin.updateWhenOffscreen = nextAnimationCulled ? false : offscreenSkinning[i];
-                animationCulled = nextAnimationCulled;
-            }
+            cullOffscreenPose = value && farFromPlayer && cullAnimation;
+            SetAnimationCulled(crowdHidden || cullOffscreenPose);
             if (value == hidden) return;
             for (int i = 0; i < renderers.Length; i++)
             {
@@ -152,6 +182,18 @@ namespace MiningSimulator.Ores
                 else canvas.enabled = canvasStates[i];
             }
             hidden = value;
+        }
+
+        private void SetAnimationCulled(bool value)
+        {
+            if (value == animationCulled) return;
+            for (int i = 0; i < animators.Length; i++)
+                if (animators[i]) animators[i].cullingMode = value
+                    ? (SimulationPaused ? AnimatorCullingMode.CullCompletely : AnimatorCullingMode.CullUpdateTransforms)
+                    : animatorModes[i];
+            for (int i = 0; i < renderers.Length; i++)
+                if (renderers[i] is SkinnedMeshRenderer skin) skin.updateWhenOffscreen = !value && offscreenSkinning[i];
+            animationCulled = value;
         }
     }
 }

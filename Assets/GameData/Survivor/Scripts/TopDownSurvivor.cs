@@ -125,6 +125,60 @@ namespace GameData.Player.Script
             Quaternion rotation=Quaternion.Slerp(body?body.rotation:transform.rotation,Quaternion.LookRotation(facing),1-Mathf.Exp(-14*Time.fixedDeltaTime));
             if(body)body.MoveRotation(rotation);else transform.rotation=rotation;
         }
+        internal void SetStartupRevealPose(float progress)
+        {
+            if (!viewCamera) return;
+            // Blend into the same orbit and collision solver used once gameplay takes control.
+            initialized = false;
+            var rotation = Quaternion.Euler(Mathf.Lerp(cameraAngle + 8f, cameraAngle, progress), cameraYaw, 0f);
+            var pivot = transform.position + Vector3.up * pivotHeight;
+            var focus = pivot + Quaternion.Euler(0f, cameraYaw, 0f) * Vector3.forward * (lookAhead * progress);
+            float distance = Mathf.Lerp(Mathf.Min(3.2f, cameraDistance), cameraDistance, progress);
+            float radius = SetCameraProjection(Mathf.Lerp(48f, fieldOfView, progress));
+            viewCamera.transform.SetPositionAndRotation(
+                ResolveCameraPosition(pivot, focus, rotation, distance, radius, 0f), rotation);
+        }
+
+        private float SetCameraProjection(float fov)
+        {
+            viewCamera.orthographic = false;
+            viewCamera.fieldOfView = fov;
+            viewCamera.nearClipPlane = .1f;
+            viewCamera.farClipPlane = 250f;
+            float near = viewCamera.nearClipPlane;
+            float halfHeight = near * Mathf.Tan(fov * .5f * Mathf.Deg2Rad);
+            return Mathf.Max(.22f, Mathf.Sqrt(near * near +
+                halfHeight * halfHeight * (1f + viewCamera.aspect * viewCamera.aspect)) + .04f);
+        }
+
+        private Vector3 ResolveCameraPosition(Vector3 pivot, Vector3 focus, Quaternion rotation,
+            float desiredDistance, float radius, float dt)
+        {
+            Vector3 backwards = -(rotation * Vector3.forward);
+            // Look-ahead and follow lag can place the focus across a wall from the player.
+            Vector3 clearFocus = SweepCamera(pivot, focus, radius);
+            float distance = ClearDistance(clearFocus, backwards, desiredDistance, radius);
+            // Retract immediately for safety, but ease back out after an obstruction clears.
+            if (dt <= 0f || distance < collisionDistance)
+            {
+                collisionDistance = distance;
+                collisionVelocity = 0f;
+            }
+            else collisionDistance = Mathf.SmoothDamp(collisionDistance, distance, ref collisionVelocity, .18f, Mathf.Infinity, dt);
+            var cameraPosition = clearFocus + backwards * collisionDistance;
+            // Sphere casts can miss a collider that already overlaps their origin.
+            if (Physics.CheckSphere(cameraPosition, radius, solidMap, QueryTriggerInteraction.Ignore) ||
+                Physics.Linecast(pivot, cameraPosition, solidMap, QueryTriggerInteraction.Ignore))
+            {
+                cameraPosition = SweepCamera(pivot, cameraPosition, radius);
+                if (Physics.CheckSphere(cameraPosition, radius, solidMap, QueryTriggerInteraction.Ignore))
+                    cameraPosition = pivot;
+                collisionDistance = Mathf.Min(collisionDistance, Vector3.Distance(clearFocus, cameraPosition));
+                collisionVelocity = 0f;
+            }
+            return cameraPosition;
+        }
+
         private void LateUpdate()
         {
             if(!viewCamera)return;
@@ -158,13 +212,7 @@ namespace GameData.Player.Script
             displayedDistance=Mathf.SmoothDamp(displayedDistance,cameraDistance,ref zoomVelocity,.14f,Mathf.Infinity,dt);
             Quaternion rotation=Quaternion.Euler(displayedAngle,displayedYaw,0);
             Vector3 playerPosition=ragdoll&&ragdoll.IsRagdoll?ragdoll.FollowPosition-Vector3.up*.9f:transform.position;
-            viewCamera.orthographic = false;
-            viewCamera.fieldOfView = fieldOfView;
-            viewCamera.nearClipPlane = .1f;
-            viewCamera.farClipPlane = 250;
-            float halfHeight = viewCamera.nearClipPlane * Mathf.Tan(fieldOfView * .5f * Mathf.Deg2Rad);
-            float radius = Mathf.Max(.22f, Mathf.Sqrt(viewCamera.nearClipPlane * viewCamera.nearClipPlane +
-                halfHeight * halfHeight * (1f + viewCamera.aspect * viewCamera.aspect)) + .04f);
+            float radius = SetCameraProjection(fieldOfView);
             Vector3 pivot = playerPosition + Vector3.up * pivotHeight;
             Vector3 focus = pivot + Quaternion.Euler(0, displayedYaw, 0) * Vector3.forward * lookAhead;
             // Rotation stays in the physics step, so Rigidbody interpolation remains valid.
@@ -173,24 +221,7 @@ namespace GameData.Player.Script
             if(!initialized||teleport){smoothedFocus=focus;followVelocity=Vector3.zero;}
             else if(dt>0)smoothedFocus=Vector3.SmoothDamp(smoothedFocus,focus,ref followVelocity,followSmoothTime,Mathf.Infinity,dt);
             initialized=true;
-            Vector3 backwards=-(rotation*Vector3.forward);
-            // Look-ahead and follow lag can place the focus across a wall from the player.
-            Vector3 clearFocus = SweepCamera(pivot, smoothedFocus, radius);
-            float distance = ClearDistance(clearFocus, backwards, displayedDistance, radius);
-            // Retract immediately for safety, but ease back out after an obstruction clears.
-            if(distance<collisionDistance){collisionDistance=distance;collisionVelocity=0;}
-            else collisionDistance=Mathf.SmoothDamp(collisionDistance,distance,ref collisionVelocity,.18f,Mathf.Infinity,dt);
-            var cameraPosition = clearFocus + backwards * collisionDistance;
-            // Sphere casts can miss a collider that already overlaps their origin.
-            if (Physics.CheckSphere(cameraPosition, radius, solidMap, QueryTriggerInteraction.Ignore) ||
-                Physics.Linecast(pivot, cameraPosition, solidMap, QueryTriggerInteraction.Ignore))
-            {
-                cameraPosition = SweepCamera(pivot, cameraPosition, radius);
-                if (Physics.CheckSphere(cameraPosition, radius, solidMap, QueryTriggerInteraction.Ignore))
-                    cameraPosition = pivot;
-                collisionDistance = Mathf.Min(collisionDistance, Vector3.Distance(clearFocus, cameraPosition));
-                collisionVelocity = 0f;
-            }
+            var cameraPosition = ResolveCameraPosition(pivot, smoothedFocus, rotation, displayedDistance, radius, dt);
             if (shakeElapsed < shakeSeconds)
             {
                 shakeElapsed = Mathf.Min(shakeSeconds, shakeElapsed + dt);

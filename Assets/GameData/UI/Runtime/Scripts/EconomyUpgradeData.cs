@@ -91,19 +91,6 @@ namespace MiningSimulator.Ores
     [UnityEngine.Scripting.APIUpdating.MovedFrom(true,"MiningSimulator.Ores","Assembly-CSharp","MiningUpgradeData")]
     public sealed class EconomyUpgradeData : ScriptableObject
     {
-        [Header("Auto upgrade - Gem unlock, Money purchases")]
-        [Min(0), SerializeField] private float autoUpgradeGemCost = 25f;
-        [Min(0.05f), SerializeField] private float autoUpgradeInterval = 0.5f;
-        [SerializeField] private string autoUpgradeSaveKey = "MiningSimulator.AutoUpgrade.v1";
-        [SerializeField] private EconomyUpgradeType[] autoUpgradeOrder = {
-            EconomyUpgradeType.MoneyReward, 
-            
-            EconomyUpgradeType.LuckyBlockReward, EconomyUpgradeType.LuckyBlockDropChance,
-            EconomyUpgradeType.ItemDropChance };
-        public float AutoUpgradeGemCost => Mathf.Max(0f, autoUpgradeGemCost);
-        public float AutoUpgradeInterval => Mathf.Max(0.05f, autoUpgradeInterval);
-        public string AutoUpgradeSaveKey => autoUpgradeSaveKey;
-        public System.Collections.Generic.IReadOnlyList<EconomyUpgradeType> AutoUpgradeOrder => autoUpgradeOrder;
         [Header("Money Reward")]
         [SerializeField] private EconomyUpgradeDefinition moneyReward =
             new("Tăng tiền nhận được", 1f);

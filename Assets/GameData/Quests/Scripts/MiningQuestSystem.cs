@@ -12,7 +12,7 @@ namespace MiningSimulator.Ores
         private sealed class SavedQuestEntry
         {
             public string questId;
-            public int progress;
+            public double progress;
             public bool claimed;
         }
 
@@ -27,7 +27,7 @@ namespace MiningSimulator.Ores
 
         private sealed class RuntimeQuestState
         {
-            public int Progress;
+            public double Progress;
             public bool Claimed;
         }
 
@@ -39,6 +39,7 @@ namespace MiningSimulator.Ores
         private readonly Dictionary<string, RuntimeQuestState> states = new();
         private string dailyStamp;
         private string weeklyStamp;
+        private DateTime checkedDailyPeriod, checkedWeeklyPeriod;
         private bool initialized;
         private bool dirty;
 
@@ -83,14 +84,16 @@ namespace MiningSimulator.Ores
 
         public int GetProgress(string questId)
         {
+            if (string.IsNullOrWhiteSpace(questId)) return 0;
             RefreshPeriods();
             return states.TryGetValue(questId, out RuntimeQuestState state)
-                ? state.Progress
+                ? (int)Math.Min(int.MaxValue, state.Progress)
                 : 0;
         }
 
         public bool IsClaimed(string questId)
         {
+            if (string.IsNullOrWhiteSpace(questId)) return false;
             RefreshPeriods();
             return states.TryGetValue(questId, out RuntimeQuestState state) && state.Claimed;
         }
@@ -106,7 +109,7 @@ namespace MiningSimulator.Ores
             rewardAmount = 0f;
             RefreshPeriods();
             MiningQuestDefinition definition = data != null ? data.GetDefinition(questId) : null;
-            if (definition == null || wallet == null ||
+            if (definition == null || !definition.IsValid || wallet == null ||
                 !states.TryGetValue(questId, out RuntimeQuestState state) ||
                 state.Claimed || state.Progress < definition.TargetAmount)
             {
@@ -114,10 +117,7 @@ namespace MiningSimulator.Ores
             }
 
             rewardAmount = definition.RollReward();
-            if (rewardAmount <= 0f)
-            {
-                return false;
-            }
+            if (!float.IsFinite(rewardAmount) || rewardAmount < 0f) return false;
 
             state.Claimed = true;
             wallet.AddMoney(rewardAmount);
@@ -131,9 +131,15 @@ namespace MiningSimulator.Ores
         public void RefreshPeriods()
         {
             InitializeState();
-            EnsureDefinitionStates();
-            string currentDaily = GetDailyStamp(DateTime.Now);
-            string currentWeekly = GetWeeklyStamp(DateTime.Now);
+            if (!data) return;
+            DateTime now = DateTime.Now;
+            DateTime dailyPeriod = data.PeriodStart(MiningQuestPeriod.Daily, now);
+            DateTime weeklyPeriod = data.PeriodStart(MiningQuestPeriod.Weekly, now);
+            if (dailyPeriod == checkedDailyPeriod && weeklyPeriod == checkedWeeklyPeriod) return;
+            checkedDailyPeriod = dailyPeriod;
+            checkedWeeklyPeriod = weeklyPeriod;
+            string currentDaily = GetStamp(dailyPeriod);
+            string currentWeekly = GetStamp(weeklyPeriod);
             bool dailyChanged = !string.Equals(dailyStamp, currentDaily, StringComparison.Ordinal);
             bool weeklyChanged = !string.Equals(weeklyStamp, currentWeekly,
                 StringComparison.Ordinal);
@@ -148,7 +154,7 @@ namespace MiningSimulator.Ores
             {
                 foreach (MiningQuestDefinition quest in data.Quests)
                 {
-                    if (quest == null || !states.TryGetValue(quest.QuestId,
+                    if (quest == null || !quest.IsValid || !states.TryGetValue(quest.QuestId,
                             out RuntimeQuestState state))
                     {
                         continue;
@@ -170,9 +176,8 @@ namespace MiningSimulator.Ores
         public TimeSpan GetTimeUntilReset(MiningQuestPeriod period)
         {
             DateTime now = DateTime.Now;
-            DateTime reset = period == MiningQuestPeriod.Daily
-                ? now.Date.AddDays(1)
-                : StartOfWeek(now).AddDays(7);
+            if (!data) return TimeSpan.Zero;
+            DateTime reset = data.PeriodStart(period, now).AddDays(period == MiningQuestPeriod.Daily ? 1 : 7);
             return reset > now ? reset - now : TimeSpan.Zero;
         }
 
@@ -197,40 +202,27 @@ namespace MiningSimulator.Ores
             AddProgress(MiningQuestObjective.Rebirth, 1);
         }
 
-        private void HandleMonsterDefeated(MonsterRewardData species, bool boss)
-        {
-            if (data == null) return;
-            RefreshPeriods();
-            bool changed = false;
-            foreach (var quest in data.Quests)
-            {
-                if (quest == null || !quest.IsValid || !quest.MatchesKill(species, boss) ||
-                    !states.TryGetValue(quest.QuestId, out var state) || state.Claimed ||
-                    state.Progress >= quest.TargetAmount) continue;
-                state.Progress++;
-                changed = true;
-            }
-            if (!changed) return;
-            dirty = true;
-            SaveState(false);
-            QuestsChanged?.Invoke();
-        }
+        private void HandleMonsterDefeated(MonsterRewardData species, bool boss) =>
+            AddProgress(MiningQuestObjective.KillMonster, 1, species, boss);
 
-        private void AddProgress(MiningQuestObjective objective, int amount)
+        private void HandleXpCollected(float amount) => AddProgress(MiningQuestObjective.CollectXp, amount);
+
+        private void AddProgress(MiningQuestObjective objective, float amount,
+            MonsterRewardData species = null, bool boss = false)
         {
-            if (amount <= 0 || data == null) return;
+            if (!float.IsFinite(amount) || amount <= 0f || data == null) return;
             RefreshPeriods();
             bool changed = false;
             foreach (MiningQuestDefinition quest in data.Quests)
             {
-                if (quest == null || !quest.IsValid || quest.Objective != objective ||
-                    !states.TryGetValue(quest.QuestId, out RuntimeQuestState state) ||
-                    state.Claimed || state.Progress >= quest.TargetAmount)
-                {
+                if (quest == null || !quest.IsValid ||
+                    !(objective == MiningQuestObjective.KillMonster ? quest.MatchesKill(species, boss) : quest.Objective == objective))
                     continue;
-                }
+                if (!states.TryGetValue(quest.QuestId, out var state))
+                    states.Add(quest.QuestId, state = new RuntimeQuestState());
+                if (state.Claimed || state.Progress >= quest.TargetAmount) continue;
 
-                state.Progress = Mathf.Min(quest.TargetAmount, state.Progress + amount);
+                state.Progress = Math.Min(quest.TargetAmount, state.Progress + amount);
                 changed = true;
             }
             if (!changed) return;
@@ -243,8 +235,11 @@ namespace MiningSimulator.Ores
         {
             if (initialized) return;
             initialized = true;
-            dailyStamp = GetDailyStamp(DateTime.Now);
-            weeklyStamp = GetWeeklyStamp(DateTime.Now);
+            checkedDailyPeriod = checkedWeeklyPeriod = default;
+            if (!data) return;
+            DateTime now = DateTime.Now;
+            dailyStamp = GetStamp(data.PeriodStart(MiningQuestPeriod.Daily, now));
+            weeklyStamp = GetStamp(data.PeriodStart(MiningQuestPeriod.Weekly, now));
             LoadState();
             EnsureDefinitionStates();
         }
@@ -278,7 +273,7 @@ namespace MiningSimulator.Ores
                 if (entry == null || string.IsNullOrWhiteSpace(entry.questId)) continue;
                 states[entry.questId] = new RuntimeQuestState
                 {
-                    Progress = Mathf.Max(0, entry.progress),
+                    Progress = double.IsFinite(entry.progress) ? Math.Max(0, entry.progress) : 0,
                     Claimed = entry.claimed
                 };
             }
@@ -307,7 +302,7 @@ namespace MiningSimulator.Ores
             };
             foreach (MiningQuestDefinition quest in data.Quests)
             {
-                if (quest == null || !states.TryGetValue(quest.QuestId,
+                if (quest == null || !quest.IsValid || !states.TryGetValue(quest.QuestId,
                         out RuntimeQuestState state))
                 {
                     continue;
@@ -328,12 +323,14 @@ namespace MiningSimulator.Ores
         {
             Unsubscribe();
             MonsterKillCredit.Defeated += HandleMonsterDefeated;
+            XPGemManager.XpCollected += HandleXpCollected;
             if (rebirthSystem != null) rebirthSystem.RebirthCompleted += HandleRebirthCompleted;
         }
 
         private void Unsubscribe()
         {
             MonsterKillCredit.Defeated -= HandleMonsterDefeated;
+            XPGemManager.XpCollected -= HandleXpCollected;
             if (rebirthSystem != null) rebirthSystem.RebirthCompleted -= HandleRebirthCompleted;
         }
 
@@ -344,20 +341,7 @@ namespace MiningSimulator.Ores
                 FindObjectsInactive.Include);
         }
 
-        private static string GetDailyStamp(DateTime time)
-        {
-            return time.Date.ToString("yyyyMMdd");
-        }
-
-        private static string GetWeeklyStamp(DateTime time)
-        {
-            return StartOfWeek(time).ToString("yyyyMMdd");
-        }
-
-        private static DateTime StartOfWeek(DateTime time)
-        {
-            int daysSinceMonday = ((int)time.DayOfWeek - (int)DayOfWeek.Monday + 7) % 7;
-            return time.Date.AddDays(-daysSinceMonday);
-        }
+        private static string GetStamp(DateTime periodStart) =>
+            periodStart.ToString("yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture);
     }
 }

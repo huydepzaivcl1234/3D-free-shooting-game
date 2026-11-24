@@ -33,9 +33,14 @@ namespace MiningSimulator.Ores
             PlayWorldAmbience(true);
         }
 
-        internal void PlayOvertimeIntro(AudioClip clip)
+        internal float OvertimeIntroPosition(AudioClip clip) =>
+            clip && overtimeSource && overtimeSource.clip == clip
+                ? (float)overtimeSource.timeSamples / clip.frequency : -1f;
+
+        internal bool PlayOvertimeIntro(AudioClip clip, float position)
         {
-            if (!audioData || !ambienceSource || OvertimeIntroActive || !EnsureClipLoaded(clip)) return;
+            if (!audioData || !ambienceSource || !EnsureClipLoaded(clip)) return false;
+            if (OvertimeIntroActive) return overtimeSource.clip == clip;
             StopAmbiencePlaylist();
             StopWorldAmbienceSwitch();
 
@@ -49,8 +54,10 @@ namespace MiningSimulator.Ores
             overtimeFadeElapsed = 0f;
             overtimePaused = false;
             overtimeSource.volume = audioData.AmbienceFadeDuration > 0f ? 0f : GetMusicVolume();
+            overtimeSource.timeSamples = Mathf.Clamp(Mathf.RoundToInt(position * clip.frequency), 0, clip.samples - 1);
             overtimeSource.Play();
             FadeAmbienceTo(0f, true);
+            return true;
         }
 
         private void TickOvertimeIntro()

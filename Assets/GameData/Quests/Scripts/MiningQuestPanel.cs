@@ -246,8 +246,11 @@ namespace MiningSimulator.Ores
                 TextMeshProUGUI label = mainMenuOpenButton.GetComponentInChildren<TextMeshProUGUI>();
                 if (label != null) label.text = MiningLocalization.Text("QUESTS");
             }
-            RefreshTimer();
-            RefreshRows();
+            if (panelRoot && panelRoot.gameObject.activeInHierarchy)
+            {
+                RefreshTimer();
+                RefreshRows();
+            }
             if (weeklyHeading != null) weeklyHeading.text = MiningLocalization.Text("WEEKLY");
             if (dailyHeading != null) dailyHeading.text = MiningLocalization.Text("DAILY");
             if (emptyDailyLabel != null) emptyDailyLabel.text = MiningLocalization.Text("No daily quests available", "Chưa có nhiệm vụ ngày");

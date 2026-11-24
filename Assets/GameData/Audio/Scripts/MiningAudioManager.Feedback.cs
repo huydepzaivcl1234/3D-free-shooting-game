@@ -12,7 +12,6 @@ namespace MiningSimulator.Ores
 
         private void HandleUpgradePurchased(EconomyUpgradeType type)
         {
-            if (upgradeSystem != null && upgradeSystem.IsAutoUpgradePurchase) return;
             if (audioData != null)
             {
                 PlaySfx(audioData.UpgradePurchasedSfx);

@@ -103,6 +103,15 @@ namespace MiningSimulator.Ores
         [SerializeField] private Color transitionFlashColor = new(0.45f, 0.95f, 1f, 1f);
         [Min(0.01f), SerializeField] private float transitionFlashDuration = 0.10f;
 
+        [Header("Survivor Startup Cinematic")]
+        [Min(.2f), SerializeField] private float startupZoomIn = 1.15f;
+        [Min(.2f), SerializeField] private float startupZoomOut = 1f;
+        [Min(0f), SerializeField] private float startupBackstepDistance = .75f;
+
+        public float StartupZoomIn => Mathf.Max(.2f, startupZoomIn);
+        public float StartupZoomOut => Mathf.Max(.2f, startupZoomOut);
+        public float StartupBackstepDistance => Mathf.Max(0f, startupBackstepDistance);
+
         [Header("PrimeTween Animation")]
         [Range(0.1f, 1f), SerializeField] private float entranceStartScale = 0.72f;
         [Min(0.01f), SerializeField] private float entranceDuration = 0.42f;

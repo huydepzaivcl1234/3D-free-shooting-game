@@ -269,6 +269,7 @@ namespace GameData.Player.Script
 
         private void LateUpdate()
         {
+            if (mainMenu && mainMenu.IsOpen) return;
             CamMovements();
             if (!_topDown || !_topDown.enabled || !_grounded || !_animator || !_animator.isActiveAndEnabled ||
                 (_ragdoll && _ragdoll.IsRagdoll))

@@ -153,7 +153,7 @@ MonoBehaviour:
   view: {fileID: 1374324290}
   benchmark: 1
   outputDirectory: C:/Users/huyancut/Documents/ChatGPT/mining simulator 3d/Deliverables/Horde10K-20261101
-  benchmarkCounts: e80300008813000010270000
+  benchmarkCounts: e80300008813000010270000204e0000
 --- !u!4 &573561659
 Transform:
   m_ObjectHideFlags: 0
@@ -484,7 +484,7 @@ GameObject:
   - component: {fileID: 2035525113}
   - component: {fileID: 2035525112}
   - component: {fileID: 2035525111}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Prototype Ground
   m_TagString: Untagged
   m_Icon: {fileID: 0}

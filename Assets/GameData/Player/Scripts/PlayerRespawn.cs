@@ -26,7 +26,7 @@ namespace GameData.Player.Script
         private PlayerRagdoll ragdoll;
         private PlayerController1 controller;
         private PistolShooting presentation;
-        private bool dead, controllerWasEnabled, weaponWasEquipped;
+        private bool dead, menuOpen, controllerWasEnabled, weaponWasEquipped;
         private Vector3 initialPosition;
         private Quaternion initialRotation;
         private void Awake()
@@ -50,6 +50,11 @@ namespace GameData.Player.Script
             if (health) health.Died -= HandleDeath;
             if (respawnButton) respawnButton.onClick.RemoveListener(RespawnNow);
         }
+        internal void RestoreCheckpointDeath()
+        {
+            if (health.Health <= 0f) HandleDeath();
+        }
+
         private void HandleDeath()
         {
             if (dead) return;
@@ -93,7 +98,7 @@ namespace GameData.Player.Script
             if(respawnButton)respawnButton.transform.localScale=buttonScale;
             if(buttonRect)buttonRect.anchoredPosition=buttonPosition;
         }
-        private void ShowRespawn(){ResetButton();if(panel)panel.SetActive(true);}
+        private void ShowRespawn(){ResetButton();if(panel)panel.SetActive(!menuOpen);}
         private IEnumerator DeathPresentation()
         {
             yield return new WaitForSecondsRealtime(deathSeconds);
@@ -113,6 +118,18 @@ namespace GameData.Player.Script
             if(deathRoutine!=null){StopCoroutine(deathRoutine);deathRoutine=null;}
             RestoreClock();ResetButton();cameraView?.EndDeathView();
         }
+        internal void SetMenuOpen(bool open)
+        {
+            menuOpen = open;
+            if (!dead) return;
+            if (open)
+            {
+                CancelDeathPresentation();
+                if (panel) panel.SetActive(false);
+            }
+            else ShowRespawn();
+        }
+
         public void RespawnNow()
         {
             CancelDeathPresentation();
